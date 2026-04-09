@@ -4,9 +4,10 @@ Shell entry points used by the top-level `Makefile` and by readers who prefer ex
 
 | Script | Role |
 |--------|------|
-| `build_example.sh` | Build one example: emits binary and `.opt.yaml` under `build/examples/<name>/`. |
-| `build_all_examples.sh` | Iterate all examples (invoked by `make examples`). |
-| `run_summary.sh` | Run `explncc summary` over `build/examples` (used by `make summarize-all`). |
-| `run_explain.sh` | Run `explncc explain` with a chosen backend (used by `make explain-all` / demos). |
+| `build_example.sh` | Build one example via Make (`vectorize_aliasing_fail`, `inline_too_costly`, …). |
+| `build_all_examples.sh` | Runs `make build-all-opt`. |
+| `run_summary.sh` | Runs `explncc summary` on `build/examples` (or first argument). |
+| `run_stats.sh` | Runs `explncc stats` on `build/examples` (or first argument). |
+| `run_explain.sh` | Thin wrapper around `explncc explain`. |
 
-Scripts are added in the same milestone as the example sources so they never point at missing files.
+Make all scripts executable in the repo: `chmod +x scripts/*.sh` (also done by `git update-index --chmod=+x` when needed).
