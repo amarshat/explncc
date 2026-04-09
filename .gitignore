@@ -27,6 +27,3 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-
-# Generated optimization records (regenerate via examples/)
-*.opt.yaml
