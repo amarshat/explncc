@@ -29,10 +29,13 @@ Artifacts land under `build/examples/<example-name>/` (binary plus `.opt.yaml`).
 
 ## 4. Run explncc
 
+After `make install-dev`, either use the `explncc` console script or `python -m explncc`:
+
 ```bash
-explncc summary build/examples/vectorize_aliasing_fail/
-explncc stats build/examples/unroll_fixed_trip/
-explncc explain build/examples/inline_too_costly/ --backend rule
+python -m explncc summary build/examples/vectorize_aliasing_fail/
+python -m explncc stats build/examples/unroll_fixed_trip/
+python -m explncc explain build/examples/inline_too_costly/before/before.opt.yaml --backend rule
+make demo PYTHON="$(pwd)/.venv/bin/python3"
 ```
 
 ## 5. Optional: local model via Ollama
