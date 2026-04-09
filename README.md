@@ -14,9 +14,17 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Documentation layout
+
+- `docs/getting-started.md` — LLVM install, editable install, running tests
+- `docs/examples.md` — what each `examples/*` program demonstrates
+- `docs/model-backends.md` — rule / Ollama / OpenAI and environment variables
+- `docs/chapter-10-notes.md` — suggested book pacing
+
 ## Verify
 
 ```bash
+make docs-check
 make check
 explncc --version
 explncc --help
