@@ -8,6 +8,7 @@ PYTHON ?= python3
 .PHONY: examples examples-clean build-all-opt
 .PHONY: build-inline-miss build-inline-costly build-vectorize-fail build-vectorize-success
 .PHONY: build-unroll-fixed build-unroll-unknown
+.PHONY: summarize-all explain-all diff-demo demo
 
 help:
 	@echo "explncc Makefile targets"
@@ -71,6 +72,19 @@ examples: build-all-opt
 examples-clean:
 	rm -rf $(EX_BUILD)
 
+EXPLNCC := $(PYTHON) -m explncc
+
+summarize-all: examples
+	$(EXPLNCC) summary $(EX_BUILD) --limit 40
+
+explain-all: examples
+	$(EXPLNCC) explain $(EX_BUILD)/vectorize_aliasing_fail/vectorize_fail.opt.yaml --backend rule --limit 25
+
+diff-demo: examples
+	$(EXPLNCC) diff $(EX_BUILD)/inline_too_costly/before/before.opt.yaml $(EX_BUILD)/inline_too_costly/after/after.opt.yaml
+
+demo: summarize-all diff-demo
+
 $(EX_BUILD)/inline_miss_no_definition/main.o: examples/inline_miss_no_definition/main.cpp
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS_EX) -foptimization-record-file=$(EX_BUILD)/inline_miss_no_definition/main.opt.yaml -c $< -o $@
@@ -110,7 +124,7 @@ $(UNROLL_UNKNOWN): examples/unroll_unknown_trip/main.cpp
 install: install-dev
 
 install-dev:
-	$(PYTHON) -m pip install -e ".[dev,ai]"
+	$(PYTHON) -m pip install -e ".[dev]"
 
 lint:
 	$(PYTHON) -m ruff check src tests
