@@ -11,7 +11,8 @@ from rich.console import Console
 
 from explncc import __version__
 from explncc.alignment import alignment_signals, filter_alignment_related
-from explncc.checks import run_checks
+from explncc.checks import CheckResult, run_checks
+from explncc.ci_report import parse_report_format, render_report
 from explncc.config import load_config
 from explncc.dataset_llm import (
     ExportFormat,
@@ -345,6 +346,148 @@ def check_cmd(
     for line in result.violations:
         typer.secho(line, fg=typer.colors.RED, err=True)
     raise typer.Exit(1)
+
+
+def _check_options_active(
+    max_missed_loop_vectorize: int | None,
+    max_missed_inline: int | None,
+    max_pass_remarks: int | None,
+    pass_name_exact: str | None,
+) -> bool:
+    return (
+        max_missed_loop_vectorize is not None
+        or max_missed_inline is not None
+        or (max_pass_remarks is not None and pass_name_exact is not None)
+    )
+
+
+@app.command("report")
+def report_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    report_format: Annotated[
+        str,
+        typer.Option("--format", help="markdown | json | github (PR-style Markdown)."),
+    ] = "markdown",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write report to this file; default stdout."),
+    ] = None,
+    title: Annotated[
+        str,
+        typer.Option("--title", help="Report heading (Markdown / GitHub title)."),
+    ] = "Optimization remarks report",
+    top_missed: Annotated[int, typer.Option("--top-missed", help="Rows in the missed table.")] = 12,
+    no_explain: Annotated[
+        bool,
+        typer.Option("--no-explain", help="Skip explanation block (faster CI)."),
+    ] = False,
+    explain_backend: Annotated[
+        str | None,
+        typer.Option("--explain-backend", help="rule | ollama | openai | auto (default from env)."),
+    ] = None,
+    explain_limit: Annotated[
+        int,
+        typer.Option("--explain-limit", help="Max remarks passed to explainer."),
+    ] = 32,
+    ai_limit: Annotated[
+        int,
+        typer.Option("--ai-limit", help="Max records serialized for model backends."),
+    ] = 40,
+    fail_on_check: Annotated[
+        bool,
+        typer.Option(
+            "--fail-on-check",
+            help="Exit 1 when policy checks fail (requires threshold flags).",
+        ),
+    ] = False,
+    max_missed_loop_vectorize: Annotated[
+        int | None,
+        typer.Option("--max-missed-loop-vectorize", help="Include in report + optional gate."),
+    ] = None,
+    max_missed_inline: Annotated[
+        int | None,
+        typer.Option("--max-missed-inline", help="Include in report + optional gate."),
+    ] = None,
+    max_pass_remarks: Annotated[
+        int | None,
+        typer.Option("--max-pass-remarks", help="With --pass-name-exact."),
+    ] = None,
+    pass_name_exact: Annotated[
+        str | None,
+        typer.Option("--pass-name-exact", help="Exact pass field for remark cap."),
+    ] = None,
+) -> None:
+    """Emit Markdown, JSON, or GitHub PR-style reports for CI and review bots."""
+
+    if max_pass_remarks is not None and not pass_name_exact:
+        typer.secho("--max-pass-remarks requires --pass-name-exact", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    if fail_on_check and not _check_options_active(
+        max_missed_loop_vectorize,
+        max_missed_inline,
+        max_pass_remarks,
+        pass_name_exact,
+    ):
+        typer.secho(
+            "--fail-on-check requires at least one threshold: "
+            "--max-missed-inline, --max-missed-loop-vectorize, or "
+            "--max-pass-remarks with --pass-name-exact",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    records = _load_records_or_exit(target)
+
+    check_result: CheckResult | None = None
+    if _check_options_active(
+        max_missed_loop_vectorize,
+        max_missed_inline,
+        max_pass_remarks,
+        pass_name_exact,
+    ):
+        check_result = run_checks(
+            records,
+            max_missed_loop_vectorize=max_missed_loop_vectorize,
+            max_missed_inline=max_missed_inline,
+            max_pass_remarks=max_pass_remarks,
+            pass_name_exact=pass_name_exact,
+        )
+
+    explain_text: str | None = None
+    if not no_explain:
+        config = load_config()
+        mode = (explain_backend or config.default_backend).strip().lower()
+        if mode == "openai" and not config.openai_api_key:
+            typer.secho("openai backend requires OPENAI_API_KEY", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        subset = records[:explain_limit] if explain_limit > 0 else records
+        explain_text = run_explanation(subset, backend=mode, config=config, ai_limit=ai_limit)
+
+    try:
+        report_fmt = parse_report_format(report_format)
+    except ValueError:
+        typer.secho(f"unknown --format {report_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from None
+
+    text = render_report(
+        report_fmt,
+        records,
+        top_missed=top_missed,
+        check_result=check_result,
+        explain_text=explain_text,
+        title=title,
+    )
+
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote report to {output}")
+    else:
+        typer.echo(text)
+
+    if fail_on_check and check_result is not None and not check_result.ok:
+        raise typer.Exit(1)
 
 
 @app.command("alignment")

@@ -36,6 +36,7 @@ def test_help_no_subcommand() -> None:
     assert "version" in result.stdout
     assert "summary" in result.stdout
     assert "alignment" in result.stdout
+    assert "report" in result.stdout
 
 
 def test_summary_json_contains_pass() -> None:
