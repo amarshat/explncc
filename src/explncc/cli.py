@@ -10,8 +10,15 @@ import typer
 from rich.console import Console
 
 from explncc import __version__
+from explncc.alignment import alignment_signals, filter_alignment_related
 from explncc.checks import run_checks
 from explncc.config import load_config
+from explncc.dataset_llm import (
+    ExportFormat,
+    build_bench_prompt_lines,
+    build_training_rows,
+    write_jsonl,
+)
 from explncc.diffing import DiffReport, diff_records
 from explncc.explain.backends import run_explanation
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
@@ -19,7 +26,7 @@ from explncc.models import OptimizationRecord
 from explncc.normalizer import load_records_from_path
 from explncc.render import print_table
 from explncc.stats import aggregate
-from explncc.summary import apply_filters, rows_for_table
+from explncc.summary import apply_filters, rows_for_table, truncate_message
 
 app = typer.Typer(
     name="explncc",
@@ -338,6 +345,189 @@ def check_cmd(
     for line in result.violations:
         typer.secho(line, fg=typer.colors.RED, err=True)
     raise typer.Exit(1)
+
+
+@app.command("alignment")
+def alignment_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    limit: Annotated[int, typer.Option("--limit", help="Max rows after filter.")] = 0,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Emit JSON with alignment_signals."),
+    ] = False,
+) -> None:
+    """List remarks that look SIMD / vectorization / alignment-relevant (heuristic slice)."""
+
+    records = _load_records_or_exit(target)
+    filtered = filter_alignment_related(records)
+    if limit > 0:
+        filtered = filtered[:limit]
+
+    if as_json:
+        payload: list[dict[str, Any]] = []
+        for r in filtered:
+            row = record_to_json_dict(r)
+            row["alignment_signals"] = alignment_signals(r)
+            payload.append(row)
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    rows_out: list[list[str]] = []
+    for r in filtered:
+        loc = ""
+        if r.file:
+            loc = r.file
+            if r.line is not None:
+                loc += f":{r.line}"
+        rows_out.append(
+            [
+                r.kind or "",
+                r.pass_name or "",
+                r.remark_name or "",
+                r.function or "",
+                loc,
+                ";".join(alignment_signals(r)),
+                truncate_message(r.message, 100),
+            ],
+        )
+    print_table(
+        stdout_console,
+        ("kind", "pass", "remark", "function", "location", "signals", "message"),
+        rows_out,
+        title=f"alignment slice ({len(filtered)} remarks, heuristic)",
+    )
+
+
+@app.command("dataset")
+def dataset_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    output: Annotated[Path, typer.Option("-o", "--output", help="JSONL output path.")],
+    focus: Annotated[
+        str,
+        typer.Option("--focus", help="alignment: SIMD slice only; all: every remark."),
+    ] = "alignment",
+    template: Annotated[
+        str,
+        typer.Option("--template", help="Chapter 11 user template: minimal | guided | rubric."),
+    ] = "guided",
+    export_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="openai-messages | explncc-record | legacy-prompt-completion",
+        ),
+    ] = "explncc-record",
+    teacher: Annotated[
+        bool,
+        typer.Option("--teacher/--no-teacher", help="Rule-based target text."),
+    ] = True,
+    placeholder: Annotated[
+        str,
+        typer.Option("--placeholder", help="Assistant field when --no-teacher."),
+    ] = "[HUMAN_LABEL_REQUIRED]",
+    limit: Annotated[int, typer.Option("--limit", help="Cap rows after focus filter.")] = 0,
+    include_args_raw: Annotated[
+        bool,
+        typer.Option("--include-args-raw", help="Keep bulky args_raw in JSON (larger prompts)."),
+    ] = False,
+) -> None:
+    """Emit JSONL rows for LLM fine-tuning / instruction datasets (Chapter 11 workflows)."""
+
+    records = _load_records_or_exit(target)
+    focus_l = focus.strip().lower()
+    if focus_l == "alignment":
+        records = filter_alignment_related(records)
+    elif focus_l != "all":
+        typer.secho("--focus must be alignment or all", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    if limit > 0:
+        records = records[:limit]
+    if not records:
+        typer.secho("no records after filter", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    fmt_l = export_format.strip().lower()
+    allowed: dict[str, ExportFormat] = {
+        "openai-messages": "openai-messages",
+        "explncc-record": "explncc-record",
+        "legacy-prompt-completion": "legacy-prompt-completion",
+    }
+    if fmt_l not in allowed:
+        typer.secho(f"unknown --format {export_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    export_fmt: ExportFormat = allowed[fmt_l]
+    try:
+        rows = build_training_rows(
+            records,
+            template_id=template,
+            export_format=export_fmt,
+            use_teacher=teacher,
+            teacher_placeholder=placeholder,
+            include_args_raw=include_args_raw,
+        )
+    except KeyError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    write_jsonl(output, rows)
+    typer.echo(f"wrote {len(rows)} JSONL records to {output}")
+
+
+@app.command("bench-prompts")
+def bench_prompts_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write JSONL; default stdout."),
+    ] = None,
+    focus: Annotated[
+        str,
+        typer.Option("--focus", help="alignment | all"),
+    ] = "alignment",
+    templates: Annotated[
+        str | None,
+        typer.Option(
+            "--templates",
+            help="Comma-separated template ids (default: all Chapter 11 templates).",
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", help="Max records after focus filter.")] = 0,
+    include_args_raw: Annotated[
+        bool,
+        typer.Option("--include-args-raw", help="Include args_raw in embedded JSON."),
+    ] = False,
+) -> None:
+    """Emit record × prompt-variant lines for comparing models or prompt designs offline."""
+
+    records = _load_records_or_exit(target)
+    focus_l = focus.strip().lower()
+    if focus_l == "alignment":
+        records = filter_alignment_related(records)
+    elif focus_l != "all":
+        typer.secho("--focus must be alignment or all", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if limit > 0:
+        records = records[:limit]
+
+    t_ids = [x.strip() for x in templates.split(",") if x.strip()] if templates else None
+    try:
+        lines = build_bench_prompt_lines(
+            records,
+            template_ids=t_ids,
+            include_args_raw=include_args_raw,
+        )
+    except KeyError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    text = "\n".join(json.dumps(line, ensure_ascii=False) for line in lines)
+    if output is not None:
+        output.write_text(text + "\n", encoding="utf-8")
+        typer.echo(f"wrote {len(lines)} bench lines to {output}")
+    else:
+        typer.echo(text)
 
 
 def main() -> None:

@@ -14,6 +14,7 @@ runner = CliRunner()
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "inline_miss_no_definition.opt.yaml"
 TINY = Path(__file__).resolve().parent / "fixtures" / "tiny_passed.opt.yaml"
+FIXTURE_SIMD = Path(__file__).resolve().parent / "fixtures" / "simd_vectorized.opt.yaml"
 
 
 def test_version_short_flag() -> None:
@@ -34,6 +35,7 @@ def test_help_no_subcommand() -> None:
     assert "explncc" in result.stdout
     assert "version" in result.stdout
     assert "summary" in result.stdout
+    assert "alignment" in result.stdout
 
 
 def test_summary_json_contains_pass() -> None:
@@ -89,3 +91,50 @@ def test_explain_openai_without_key(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     result = runner.invoke(app, ["explain", str(FIXTURE), "--backend", "openai"])
     assert result.exit_code == 2
+
+
+def test_alignment_json_includes_signals() -> None:
+    result = runner.invoke(app, ["alignment", str(FIXTURE_SIMD), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data[0]["pass_name"] == "loop-vectorize"
+    assert "alignment_signals" in data[0]
+
+
+def test_dataset_writes_jsonl(tmp_path: Path) -> None:
+    out = tmp_path / "train.jsonl"
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            str(FIXTURE_SIMD),
+            "-o",
+            str(out),
+            "--focus",
+            "all",
+            "--format",
+            "openai-messages",
+            "--template",
+            "minimal",
+        ],
+    )
+    assert result.exit_code == 0
+    assert out.is_file()
+    assert '"messages"' in out.read_text(encoding="utf-8")
+
+
+def test_bench_prompts_variants() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "bench-prompts",
+            str(FIXTURE_SIMD),
+            "--focus",
+            "all",
+            "--templates",
+            "minimal,rubric",
+        ],
+    )
+    assert result.exit_code == 0
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    assert len(lines) == 2
