@@ -8,7 +8,7 @@ PYTHON ?= python3
 .PHONY: examples examples-clean build-all-opt
 .PHONY: build-inline-miss build-inline-costly build-vectorize-fail build-vectorize-success
 .PHONY: build-unroll-fixed build-unroll-unknown
-.PHONY: summarize-all explain-all diff-demo demo
+.PHONY: summarize-all explain-all diff-demo demo chapter11-demo
 
 help:
 	@echo "explncc Makefile targets"
@@ -27,7 +27,7 @@ help:
 	@echo "  make examples-clean"
 	@echo ""
 	@echo "explncc demos (after install-dev + examples):"
-	@echo "  make summarize-all | explain-all | diff-demo | demo"
+	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo"
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -84,6 +84,11 @@ diff-demo: examples
 	$(EXPLNCC) diff $(EX_BUILD)/inline_too_costly/before/before.opt.yaml $(EX_BUILD)/inline_too_costly/after/after.opt.yaml
 
 demo: summarize-all diff-demo
+
+chapter11-demo: examples
+	$(EXPLNCC) alignment $(EX_BUILD)/vectorize_success/ --limit 15
+	$(EXPLNCC) bench-prompts $(EX_BUILD)/vectorize_success/vectorize_success.opt.yaml \
+		--focus alignment --templates minimal,guided --limit 3 | head -n 2
 
 $(EX_BUILD)/inline_miss_no_definition/main.o: examples/inline_miss_no_definition/main.cpp
 	mkdir -p $(dir $@)
@@ -145,7 +150,8 @@ DOCS := \
 	docs/getting-started.md \
 	docs/examples.md \
 	docs/model-backends.md \
-	docs/chapter-10-notes.md
+	docs/chapter-10-notes.md \
+	docs/chapter-11-notes.md
 
 docs-check:
 	@for f in $(DOCS); do test -f $$f || { echo "missing $$f"; exit 1; }; done

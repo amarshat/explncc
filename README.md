@@ -1,6 +1,6 @@
 # explncc
 
-**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, and **explain** workflows from the terminal.
+**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, **explain**, and **Chapter 11-style dataset / prompt** workflows from the terminal.
 
 Companion tooling for *Decode the Compiler: AI-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
 
@@ -39,6 +39,31 @@ python -m explncc export build/examples/ --format jsonl -o /tmp/out.jsonl
 python -m explncc check build/examples/ --max-missed-inline 200
 ```
 
+### Chapter 11 (SIMD / alignment + LLM datasets)
+
+These commands are **deterministic**: they do not train or call a model unless you plug the output into your own tooling.
+
+```bash
+# Heuristic slice: vectorization-related remarks (pass names, keywords, vector width field)
+python -m explncc alignment build/examples/vectorize_success/ --limit 20
+python -m explncc alignment build/examples/ --json | head -c 600
+
+# JSONL for fine-tuning / instruction tuning (OpenAI-style chat messages + optional metadata)
+python -m explncc dataset build/examples/vectorize_aliasing_fail/ \
+  -o /tmp/ch11_train.jsonl \
+  --focus alignment \
+  --template guided \
+  --format explncc-record
+
+# Same remarks × multiple prompt shapes (for benchmark sweeps)
+python -m explncc bench-prompts build/examples/vectorize_success/vectorize_success.opt.yaml \
+  --focus alignment \
+  --templates minimal,guided,rubric \
+  -o /tmp/ch11_bench.jsonl
+```
+
+See [docs/chapter-11-notes.md](docs/chapter-11-notes.md) for how this maps to the chapter outline and where **IR** must be joined in separately.
+
 ## Example output (summary)
 
 Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated `message`. Use `--json` or `--jsonl` for stable downstream tooling.
@@ -55,6 +80,9 @@ Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated
 | `explncc/exporters.py` | `json`, `jsonl`, `csv` |
 | `explncc/checks.py` | CI thresholds |
 | `explncc/explain/` | Rule text + optional HTTP backends |
+| `explncc/alignment.py` | Heuristic SIMD / alignment-related remark slice |
+| `explncc/prompt_templates.py` | Named Chapter 11 user prompts (`minimal`, `guided`, `rubric`) |
+| `explncc/dataset_llm.py` | JSONL builders for training / bench rows |
 | `explncc/cli.py` | Typer commands |
 
 Subpackages stay small so a book chapter can point to one file at a time.
@@ -67,8 +95,10 @@ Subpackages stay small so a book chapter can point to one file at a time.
 ## Limitations
 
 - Heuristics depend on Clang’s YAML shape; newer LLVM versions may add fields (handled conservatively).
+- **`alignment` slice** is keyword/pass-based, not semantic analysis; validate on your corpus before publishing benchmark numbers.
 - **Diff** compares fingerprints of normalized rows; identical logical events with different wording may look distinct.
 - **AI backends** augment text only; they never replace normalized records.
+- **`dataset` / `bench-prompts`** emit structure for training; they do not guarantee your fine-tuning provider’s latest JSONL schema — verify against current API docs.
 
 ## Roadmap
 
@@ -78,7 +108,7 @@ Subpackages stay small so a book chapter can point to one file at a time.
 
 ## For readers of *Decode the Compiler*
 
-Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run explncc to connect source patterns to compiler vocabulary. See `docs/chapter-10-notes.md` for a suggested teaching order.
+Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run explncc to connect source patterns to compiler vocabulary. See `docs/chapter-10-notes.md` for a suggested teaching order and `docs/chapter-11-notes.md` for alignment / LLM dataset workflows.
 
 ## Why not just read `.opt.yaml` manually?
 
@@ -118,6 +148,16 @@ Details: [docs/getting-started.md](docs/getting-started.md) and [docs/examples.m
 make install-dev
 make check
 make demo          # needs `make examples` first
+make chapter11-demo PYTHON="$(pwd)/.venv/bin/python3"   # alignment + bench-prompts sample
+```
+
+### Testing Chapter 11 features
+
+```bash
+make check
+python -m explncc alignment tests/fixtures/simd_vectorized.opt.yaml --json
+python -m explncc dataset tests/fixtures/simd_vectorized.opt.yaml -o /tmp/t.jsonl --focus all --format openai-messages --template minimal
+python -m explncc bench-prompts tests/fixtures/simd_vectorized.opt.yaml --focus all --templates minimal
 ```
 
 ## License
