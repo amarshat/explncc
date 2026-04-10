@@ -9,5 +9,6 @@ Shell entry points used by the top-level `Makefile` and by readers who prefer ex
 | `run_summary.sh` | Runs `explncc summary` on `build/examples` (or first argument). |
 | `run_stats.sh` | Runs `explncc stats` on `build/examples` (or first argument). |
 | `run_explain.sh` | Thin wrapper around `explncc explain`. |
+| `ci_github_step_summary.sh` | Append a Markdown `report` to `$GITHUB_STEP_SUMMARY` in Actions. |
 
 Make all scripts executable in the repo: `chmod +x scripts/*.sh` (also done by `git update-index --chmod=+x` when needed).

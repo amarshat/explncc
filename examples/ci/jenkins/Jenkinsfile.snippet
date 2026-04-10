@@ -1,0 +1,23 @@
+// Jenkins: run explncc after a stage that produces optimization-record YAML.
+// Install explncc on the agent (venv or system Python), then archive the report.
+
+stage('Optimization remark report') {
+    steps {
+        sh '''
+            set -e
+            OPT_YAML="${WORKSPACE}/build/your.opt.yaml"
+            test -f "$OPT_YAML"
+            python3 -m explncc report "$OPT_YAML" \
+                --format markdown \
+                --title "Build ${BUILD_NUMBER} optimization remarks" \
+                --top-missed 20 \
+                --no-explain \
+                -o "${WORKSPACE}/explncc-report.md"
+        '''
+        archiveArtifacts artifacts: 'explncc-report.md', onlyIfSuccessful: false
+    }
+}
+
+// Optional gate (fails the stage when thresholds are exceeded):
+//   python3 -m explncc report "$OPT_YAML" --format json --no-explain \\
+//       --fail-on-check --max-missed-loop-vectorize 100

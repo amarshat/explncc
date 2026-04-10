@@ -1,0 +1,65 @@
+# explncc — optimization remark report in GitHub Actions
+#
+# Copy to .github/workflows/ and set OPT_YAML to the path of your .opt.yaml artifact.
+# Book: Chapter 12 — Adding an LLM Layer to Your Compiler CI
+
+name: explncc report
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**/*.opt.yaml"
+
+jobs:
+  optimization-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Replace with the file your compile job produces or downloads from an artifact.
+      OPT_YAML: ${{ github.workspace }}/tests/fixtures/inline_miss_no_definition.opt.yaml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install explncc
+        run: pip install .
+
+      - name: Append Markdown to job summary
+        run: |
+          python -m explncc report "$OPT_YAML" \
+            --format markdown \
+            --title "Optimization remarks (${{ github.sha }})" \
+            --top-missed 15 \
+            --no-explain \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: PR-style comment body (save artifact; post with gh or an action)
+        run: |
+          python -m explncc report "$OPT_YAML" \
+            --format github \
+            --title "Optimization remarks" \
+            --top-missed 12 \
+            --no-explain \
+            -o pr-comment.md
+
+      - name: Upload comment body
+        uses: actions/upload-artifact@v4
+        with:
+          name: explncc-pr-comment
+          path: pr-comment.md
+
+      # Optional: fail the job when policy thresholds are exceeded.
+      # - name: Policy gate
+      #   run: |
+      #     python -m explncc report "$OPT_YAML" \
+      #       --format json \
+      #       -o report.json \
+      #       --no-explain \
+      #       --fail-on-check \
+      #       --max-missed-inline 50

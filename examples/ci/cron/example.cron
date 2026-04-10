@@ -1,0 +1,6 @@
+# Nightly optimization remark digest (local or build machine).
+# Adjust paths and PYTHONPATH; ensure explncc is installed (`pip install explncc` or editable).
+#
+# 15 2 * * * /path/to/explncc/examples/ci/cron/run_nightly_report.sh
+
+15 2 * * * /home/build/explncc/examples/ci/cron/run_nightly_report.sh >> /var/log/explncc-cron.log 2>&1

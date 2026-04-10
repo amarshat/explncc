@@ -1,6 +1,6 @@
 # explncc
 
-**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, **explain**, and **Chapter 11-style dataset / prompt** workflows from the terminal.
+**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, **explain**, **Chapter 11-style training exports**, and **Chapter 12-style CI reports** (Markdown, JSON, PR comments, policy gates).
 
 Companion tooling for *Decode the Compiler: AI-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
 
@@ -64,6 +64,29 @@ python -m explncc bench-prompts build/examples/vectorize_success/vectorize_succe
 
 See [docs/chapter-11-notes.md](docs/chapter-11-notes.md) for how this maps to the chapter outline and where **IR** must be joined in separately.
 
+### Chapter 12 (CI, job summaries, PR comments, triage)
+
+`explncc report` turns the same normalized remarks into **one artifact** for pipelines: no separate “CI edition” of the parser.
+
+```bash
+# GitHub Actions job summary (also: scripts/ci_github_step_summary.sh)
+python -m explncc report build/app.opt.yaml --format markdown --no-explain --title "Build remarks" >> "$GITHUB_STEP_SUMMARY"
+
+# Collapsible Markdown for pull-request bots (`gh pr comment --body-file`, etc.)
+python -m explncc report build/app.opt.yaml --format github --no-explain -o pr-comment.md
+
+# Machine-readable bundle for dashboards or custom gates
+python -m explncc report build/app.opt.yaml --format json --no-explain -o report.json
+
+# Same thresholds as `check`: exit 1 when limits are exceeded (after writing `-o`)
+python -m explncc report build/app.opt.yaml -o triage.md --fail-on-check --max-missed-inline 80
+
+# Optional model layer (use sparingly in CI: cost, latency, secrets)
+python -m explncc report build/app.opt.yaml --format markdown --explain-backend rule
+```
+
+Copy-ready samples live under [examples/ci/](examples/ci/). Author notes: [docs/chapter-12-notes.md](docs/chapter-12-notes.md).
+
 ## Example output (summary)
 
 Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated `message`. Use `--json` or `--jsonl` for stable downstream tooling.
@@ -83,6 +106,7 @@ Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated
 | `explncc/alignment.py` | Heuristic SIMD / alignment-related remark slice |
 | `explncc/prompt_templates.py` | Named Chapter 11 user prompts (`minimal`, `guided`, `rubric`) |
 | `explncc/dataset_llm.py` | JSONL builders for training / bench rows |
+| `explncc/ci_report.py` | Markdown / JSON / GitHub-flavored CI reports |
 | `explncc/cli.py` | Typer commands |
 
 Subpackages stay small so a book chapter can point to one file at a time.
@@ -99,6 +123,7 @@ Subpackages stay small so a book chapter can point to one file at a time.
 - **Diff** compares fingerprints of normalized rows; identical logical events with different wording may look distinct.
 - **AI backends** augment text only; they never replace normalized records.
 - **`dataset` / `bench-prompts`** emit structure for training; they do not guarantee your fine-tuning provider’s latest JSONL schema — verify against current API docs.
+- **`report` with explanation enabled** can call remote model APIs; prefer `--no-explain` on high-frequency CI unless you control keys, quotas, and data-retention policy.
 
 ## Roadmap
 
@@ -108,7 +133,7 @@ Subpackages stay small so a book chapter can point to one file at a time.
 
 ## For readers of *Decode the Compiler*
 
-Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run explncc to connect source patterns to compiler vocabulary. See `docs/chapter-10-notes.md` for a suggested teaching order and `docs/chapter-11-notes.md` for alignment / LLM dataset workflows.
+Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run explncc to connect source patterns to compiler vocabulary. See `docs/chapter-10-notes.md` for a suggested teaching order, `docs/chapter-11-notes.md` for alignment / LLM dataset workflows, and `docs/chapter-12-notes.md` for CI and PR integration.
 
 ## Why not just read `.opt.yaml` manually?
 
@@ -149,6 +174,7 @@ make install-dev
 make check
 make demo          # needs `make examples` first
 make chapter11-demo PYTHON="$(pwd)/.venv/bin/python3"   # alignment + bench-prompts sample
+make chapter12-demo PYTHON="$(pwd)/.venv/bin/python3"     # CI-style github report (fixture)
 ```
 
 ### Testing Chapter 11 features
@@ -158,6 +184,14 @@ make check
 python -m explncc alignment tests/fixtures/simd_vectorized.opt.yaml --json
 python -m explncc dataset tests/fixtures/simd_vectorized.opt.yaml -o /tmp/t.jsonl --focus all --format openai-messages --template minimal
 python -m explncc bench-prompts tests/fixtures/simd_vectorized.opt.yaml --focus all --templates minimal
+```
+
+### Testing Chapter 12 (`report`)
+
+```bash
+python -m explncc report tests/fixtures/inline_miss_no_definition.opt.yaml --format markdown --no-explain
+python -m explncc report tests/fixtures/inline_miss_no_definition.opt.yaml --format github --no-explain | head -n 20
+python -m pytest -q tests/test_ci_report.py tests/test_report_cli.py
 ```
 
 ## License
