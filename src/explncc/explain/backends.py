@@ -1,4 +1,4 @@
-"""Orchestrate rule, Ollama, and OpenAI backends."""
+"""Orchestrate rule, Ollama, Anthropic (Claude), and OpenAI backends."""
 
 from __future__ import annotations
 
@@ -100,6 +100,43 @@ def _openai_chat(config: ExplnccConfig, user: str) -> str:
     return content.strip()
 
 
+def _anthropic_chat(config: ExplnccConfig, user: str) -> str:
+    if not config.anthropic_api_key:
+        msg = "ANTHROPIC_API_KEY is not set."
+        raise RuntimeError(msg)
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key": config.anthropic_api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": config.anthropic_model,
+        "max_tokens": 4096,
+        "system": prompts.SYSTEM_EXPLAIN,
+        "messages": [{"role": "user", "content": user}],
+    }
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+    data = response.json()
+    blocks = data.get("content", [])
+    if not isinstance(blocks, list):
+        msg = "Anthropic returned unexpected content."
+        raise RuntimeError(msg)
+    texts: list[str] = []
+    for block in blocks:
+        if isinstance(block, dict) and block.get("type") == "text":
+            t = block.get("text")
+            if isinstance(t, str):
+                texts.append(t)
+    joined = "\n".join(texts).strip()
+    if not joined:
+        msg = "Anthropic returned an empty response."
+        raise RuntimeError(msg)
+    return joined
+
+
 def run_explanation(
     records: list[OptimizationRecord],
     *,
@@ -139,6 +176,16 @@ def run_explanation(
             )
         return f"{rule}\n\n---\nModel augmentation (OpenAI)\n\n{extra}"
 
+    if mode == "claude":
+        try:
+            extra = _anthropic_chat(config, payload)
+        except Exception as exc:
+            return (
+                f"{rule}\n\n---\nModel augmentation (Claude) failed: {exc}. "
+                "Showing rule-based explanation only."
+            )
+        return f"{rule}\n\n---\nModel augmentation (Claude)\n\n{extra}"
+
     if mode == "auto":
         ollama_err: str | None = None
         if ollama_available(config.ollama_host):
@@ -147,6 +194,27 @@ def run_explanation(
                 return f"{rule}\n\n---\nModel augmentation (Ollama, auto)\n\n{extra}"
             except Exception as exc:
                 ollama_err = str(exc)
+        if config.anthropic_api_key:
+            try:
+                extra = _anthropic_chat(config, payload)
+                note = f" (Ollama skipped: {ollama_err})" if ollama_err else ""
+                return f"{rule}\n\n---\nModel augmentation (Claude, auto){note}\n\n{extra}"
+            except Exception as exc:
+                anthropic_err = str(exc)
+                if config.openai_api_key:
+                    try:
+                        extra = _openai_chat(config, payload)
+                        note = f" (prior: Ollama={ollama_err!r}; Claude={anthropic_err!r})"
+                        return f"{rule}\n\n---\nModel augmentation (OpenAI, auto){note}\n\n{extra}"
+                    except Exception as openai_exc:
+                        return (
+                            f"{rule}\n\n---\nModel augmentation skipped (auto): {openai_exc}. "
+                            "Showing rule-based explanation only."
+                        )
+                return (
+                    f"{rule}\n\n---\nModel augmentation skipped (auto, Claude): {anthropic_err}. "
+                    "Showing rule-based explanation only."
+                )
         if config.openai_api_key:
             try:
                 extra = _openai_chat(config, payload)

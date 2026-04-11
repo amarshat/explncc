@@ -9,6 +9,7 @@ import pytest
 from explncc.checks import CheckResult
 from explncc.ci_report import (
     build_github_comment,
+    build_html_report,
     build_json_payload,
     build_markdown_report,
     parse_report_format,
@@ -20,6 +21,7 @@ from explncc.models import OptimizationRecord
 
 def test_parse_report_format() -> None:
     assert parse_report_format("GITHUB") == "github"
+    assert parse_report_format("HTML") == "html"
 
 
 def test_parse_report_format_invalid() -> None:
@@ -111,6 +113,29 @@ def test_github_comment_has_details() -> None:
     assert "<details>" in text
     assert "hello" in text
     assert "```text" in text or "_No message" in text
+
+
+def test_html_report_escapes_title_and_message() -> None:
+    recs = [
+        OptimizationRecord(
+            kind="missed",
+            pass_name="inline",
+            remark_name="X",
+            message="<script>alert(1)</script>",
+            file="a.cpp",
+            line=1,
+        ),
+    ]
+    text = build_html_report(
+        recs,
+        top_missed=5,
+        check_result=None,
+        explain_text=None,
+        title="Report <test>",
+    )
+    assert "<!DOCTYPE html>" in text
+    assert "Report &lt;test&gt;" in text
+    assert "&lt;script&gt;" in text
 
 
 def test_render_report_json_roundtrip() -> None:

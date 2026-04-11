@@ -37,6 +37,25 @@ def test_help_no_subcommand() -> None:
     assert "summary" in result.stdout
     assert "alignment" in result.stdout
     assert "report" in result.stdout
+    assert "digest" in result.stdout
+    assert "doctor" in result.stdout
+
+
+def test_digest_json_shape() -> None:
+    result = runner.invoke(app, ["digest", str(FIXTURE)])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert "cache_key" in data
+    assert "files" in data
+    assert data["file_count"] >= 1
+
+
+def test_doctor_stdout_json() -> None:
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert "default_backend" in data
+    assert data["openai_api_key"] in ("set", "unset")
 
 
 def test_summary_json_contains_pass() -> None:

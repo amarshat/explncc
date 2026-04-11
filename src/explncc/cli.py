@@ -13,7 +13,7 @@ from explncc import __version__
 from explncc.alignment import alignment_signals, filter_alignment_related
 from explncc.checks import CheckResult, run_checks
 from explncc.ci_report import parse_report_format, render_report
-from explncc.config import load_config
+from explncc.config import doctor_payload, load_config
 from explncc.dataset_llm import (
     ExportFormat,
     build_bench_prompt_lines,
@@ -21,6 +21,7 @@ from explncc.dataset_llm import (
     write_jsonl,
 )
 from explncc.diffing import DiffReport, diff_records
+from explncc.digest import build_digest, format_digest_json
 from explncc.explain.backends import run_explanation
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
 from explncc.models import OptimizationRecord
@@ -66,6 +67,21 @@ def _main(
 def version_cmd() -> None:
     """Print the explncc version string."""
     typer.echo(__version__)
+
+
+@app.command("doctor")
+def doctor_cmd() -> None:
+    """Print masked backend-related configuration (safe for CI logs)."""
+    typer.echo(json.dumps(doctor_payload(), indent=2, ensure_ascii=False))
+
+
+@app.command("digest")
+def digest_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+) -> None:
+    """Emit SHA-256 digests per ``.opt.yaml`` file plus an aggregate cache key."""
+    data = build_digest(target)
+    typer.echo(format_digest_json(data))
 
 
 def _load_records_or_exit(path: Path) -> list[OptimizationRecord]:
@@ -229,7 +245,7 @@ def explain_cmd(
         str | None,
         typer.Option(
             "--backend",
-            help="rule | ollama | openai | auto (default: EXPLNCC_BACKEND or rule).",
+            help="rule | ollama | openai | claude | auto (default: EXPLNCC_BACKEND or rule).",
         ),
     ] = None,
     pass_contains: Annotated[
@@ -257,6 +273,13 @@ def explain_cmd(
     if mode == "openai" and not config.openai_api_key:
         typer.secho(
             "openai backend requires OPENAI_API_KEY",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if mode == "claude" and not config.anthropic_api_key:
+        typer.secho(
+            "claude backend requires ANTHROPIC_API_KEY",
             fg=typer.colors.RED,
             err=True,
         )
@@ -366,7 +389,7 @@ def report_cmd(
     target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
     report_format: Annotated[
         str,
-        typer.Option("--format", help="markdown | json | github (PR-style Markdown)."),
+        typer.Option("--format", help="markdown | json | github | html."),
     ] = "markdown",
     output: Annotated[
         Path | None,
@@ -383,7 +406,10 @@ def report_cmd(
     ] = False,
     explain_backend: Annotated[
         str | None,
-        typer.Option("--explain-backend", help="rule | ollama | openai | auto (default from env)."),
+        typer.Option(
+            "--explain-backend",
+            help="rule | ollama | openai | claude | auto (default from env).",
+        ),
     ] = None,
     explain_limit: Annotated[
         int,
@@ -417,7 +443,7 @@ def report_cmd(
         typer.Option("--pass-name-exact", help="Exact pass field for remark cap."),
     ] = None,
 ) -> None:
-    """Emit Markdown, JSON, or GitHub PR-style reports for CI and review bots."""
+    """Emit Markdown, JSON, HTML, or GitHub PR-style reports for CI and review bots."""
 
     if max_pass_remarks is not None and not pass_name_exact:
         typer.secho("--max-pass-remarks requires --pass-name-exact", fg=typer.colors.RED, err=True)
@@ -461,6 +487,9 @@ def report_cmd(
         mode = (explain_backend or config.default_backend).strip().lower()
         if mode == "openai" and not config.openai_api_key:
             typer.secho("openai backend requires OPENAI_API_KEY", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        if mode == "claude" and not config.anthropic_api_key:
+            typer.secho("claude backend requires ANTHROPIC_API_KEY", fg=typer.colors.RED, err=True)
             raise typer.Exit(2)
         subset = records[:explain_limit] if explain_limit > 0 else records
         explain_text = run_explanation(subset, backend=mode, config=config, ai_limit=ai_limit)

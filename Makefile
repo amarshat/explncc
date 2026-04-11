@@ -156,7 +156,8 @@ DOCS := \
 	docs/model-backends.md \
 	docs/chapter-10-notes.md \
 	docs/chapter-11-notes.md \
-	docs/chapter-12-notes.md
+	docs/chapter-12-notes.md \
+	docs/chapter-13-notes.md
 
 docs-check:
 	@for f in $(DOCS); do test -f $$f || { echo "missing $$f"; exit 1; }; done

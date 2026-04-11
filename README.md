@@ -1,6 +1,6 @@
 # explncc
 
-**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, **explain**, **Chapter 11-style training exports**, and **Chapter 12-style CI reports** (Markdown, JSON, PR comments, policy gates).
+**Explain Compiler** — parse Clang/LLVM `.opt.yaml` optimization remark streams, normalize them into a stable schema, and drive **summary**, **stats**, **diff**, **export**, **check**, **explain**, **Chapter 11-style training exports**, and **Chapter 12-style CI reports** (Markdown, JSON, HTML, PR comments, policy gates), plus **digest** and **doctor** for cache keys and masked config (Chapter 13 themes).
 
 Companion tooling for *Decode the Compiler: AI-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
 
@@ -78,14 +78,21 @@ python -m explncc report build/app.opt.yaml --format github --no-explain -o pr-c
 # Machine-readable bundle for dashboards or custom gates
 python -m explncc report build/app.opt.yaml --format json --no-explain -o report.json
 
+# Self-contained HTML (browser / attachment friendly)
+python -m explncc report build/app.opt.yaml --format html --no-explain -o report.html
+
 # Same thresholds as `check`: exit 1 when limits are exceeded (after writing `-o`)
 python -m explncc report build/app.opt.yaml -o triage.md --fail-on-check --max-missed-inline 80
 
 # Optional model layer (use sparingly in CI: cost, latency, secrets)
 python -m explncc report build/app.opt.yaml --format markdown --explain-backend rule
+
+# Stable digests over collected .opt.yaml (CI cache keys) and masked backend env
+python -m explncc digest build/
+python -m explncc doctor
 ```
 
-Copy-ready samples live under [examples/ci/](examples/ci/). Author notes: [docs/chapter-12-notes.md](docs/chapter-12-notes.md).
+Copy-ready samples live under [examples/ci/](examples/ci/). Author notes: [docs/chapter-12-notes.md](docs/chapter-12-notes.md), [docs/chapter-13-notes.md](docs/chapter-13-notes.md).
 
 ## Example output (summary)
 
@@ -106,7 +113,9 @@ Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated
 | `explncc/alignment.py` | Heuristic SIMD / alignment-related remark slice |
 | `explncc/prompt_templates.py` | Named Chapter 11 user prompts (`minimal`, `guided`, `rubric`) |
 | `explncc/dataset_llm.py` | JSONL builders for training / bench rows |
-| `explncc/ci_report.py` | Markdown / JSON / GitHub-flavored CI reports |
+| `explncc/ci_report.py` | Markdown / JSON / HTML / GitHub-flavored CI reports |
+| `explncc/digest.py` | Per-file and aggregate SHA-256 over `.opt.yaml` inputs |
+| `explncc/config.py` | Backend env + `doctor` payload |
 | `explncc/cli.py` | Typer commands |
 
 Subpackages stay small so a book chapter can point to one file at a time.

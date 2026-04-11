@@ -30,6 +30,16 @@ def test_report_markdown_to_stdout() -> None:
     assert "inline" in result.stdout
 
 
+def test_report_html_stdout() -> None:
+    result = runner.invoke(
+        app,
+        ["report", str(FIXTURE), "--format", "html", "--no-explain", "--top-missed", "3"],
+    )
+    assert result.exit_code == 0
+    assert "<!DOCTYPE html>" in result.stdout
+    assert "Top missed" in result.stdout
+
+
 def test_report_json_stdout() -> None:
     result = runner.invoke(
         app,

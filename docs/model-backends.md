@@ -9,7 +9,8 @@
 | `rule` | Default; explicit `--backend rule` | None |
 | `ollama` | `--backend ollama` or `EXPLNCC_BACKEND=ollama` | Ollama listening on `OLLAMA_HOST` (default `http://127.0.0.1:11434`), model pulled |
 | `openai` | `--backend openai` | `OPENAI_API_KEY` set |
-| `auto` | `--backend auto` | Try Ollama (quick probe), else OpenAI if key present, else `rule` |
+| `claude` | `--backend claude` | `ANTHROPIC_API_KEY` set (Anthropic Messages API) |
+| `auto` | `--backend auto` | Try Ollama; else Claude if key set; else OpenAI if key set; else rule-only / notes |
 
 ## Environment variables
 
@@ -20,6 +21,8 @@
 | `OLLAMA_MODEL` | Model tag for `/api/chat` | `qwen2.5-coder:7b-instruct` |
 | `OPENAI_API_KEY` | Bearer token for OpenAI | unset |
 | `OPENAI_MODEL` | Chat model name | `gpt-4o-mini` |
+| `ANTHROPIC_API_KEY` | API key for Anthropic | unset |
+| `ANTHROPIC_MODEL` | Claude model id for Messages API | `claude-3-5-haiku-20241022` |
 
 ## Default local model: `qwen2.5-coder:7b-instruct`
 
