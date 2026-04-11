@@ -9,5 +9,6 @@
 | [chapter-11-notes.md](chapter-11-notes.md) | SIMD/alignment slices, training JSONL, prompt benchmarks |
 | [chapter-12-notes.md](chapter-12-notes.md) | CI reports, GitHub/Jenkins/cron, PR comments, policy gates |
 | [chapter-13-notes.md](chapter-13-notes.md) | Tool architecture, backends, digest/doctor, HTML reports, shipping the CLI |
+| [chapter-14-notes.md](chapter-14-notes.md) | Mermaid/HTML/JSON viz, merging explanations, IR vs remarks, external LLVM viewers |
 
 The repository `README.md` is the primary entry point for motivation, architecture, and quick commands.

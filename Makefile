@@ -8,7 +8,7 @@ PYTHON ?= python3
 .PHONY: examples examples-clean build-all-opt
 .PHONY: build-inline-miss build-inline-costly build-vectorize-fail build-vectorize-success
 .PHONY: build-unroll-fixed build-unroll-unknown
-.PHONY: summarize-all explain-all diff-demo demo chapter11-demo chapter12-demo
+.PHONY: summarize-all explain-all diff-demo demo chapter11-demo chapter12-demo chapter14-demo
 
 help:
 	@echo "explncc Makefile targets"
@@ -27,7 +27,7 @@ help:
 	@echo "  make examples-clean"
 	@echo ""
 	@echo "explncc demos (after install-dev + examples):"
-	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo | chapter12-demo"
+	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo | chapter12-demo | chapter14-demo"
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -94,6 +94,9 @@ chapter12-demo:
 	$(EXPLNCC) report tests/fixtures/inline_miss_no_definition.opt.yaml \
 		--format github --no-explain --top-missed 5 --title "CI sample report"
 
+chapter14-demo: examples
+	$(EXPLNCC) viz $(EX_BUILD) --style pass-summary --format mermaid --top 10 | head -n 22
+
 $(EX_BUILD)/inline_miss_no_definition/main.o: examples/inline_miss_no_definition/main.cpp
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS_EX) -foptimization-record-file=$(EX_BUILD)/inline_miss_no_definition/main.opt.yaml -c $< -o $@
@@ -157,7 +160,8 @@ DOCS := \
 	docs/chapter-10-notes.md \
 	docs/chapter-11-notes.md \
 	docs/chapter-12-notes.md \
-	docs/chapter-13-notes.md
+	docs/chapter-13-notes.md \
+	docs/chapter-14-notes.md
 
 docs-check:
 	@for f in $(DOCS); do test -f $$f || { echo "missing $$f"; exit 1; }; done

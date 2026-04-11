@@ -39,6 +39,7 @@ def test_help_no_subcommand() -> None:
     assert "report" in result.stdout
     assert "digest" in result.stdout
     assert "doctor" in result.stdout
+    assert "viz" in result.stdout
 
 
 def test_digest_json_shape() -> None:

@@ -94,6 +94,18 @@ python -m explncc doctor
 
 Copy-ready samples live under [examples/ci/](examples/ci/). Author notes: [docs/chapter-12-notes.md](docs/chapter-12-notes.md), [docs/chapter-13-notes.md](docs/chapter-13-notes.md).
 
+### Chapter 14 (diagrams + merged explanations)
+
+`explncc viz` emits **Mermaid** diagrams, **HTML** with Mermaid.js, or **JSON** for your own graph UI — all from the same normalized remarks as the rest of the tool (not from LLVM IR bitcode).
+
+```bash
+python -m explncc viz build/examples/ --style pass-summary --format mermaid --top 12 -o remarks.mmd
+python -m explncc viz build/app.opt.yaml --style pass-remark --format json -o viz.json
+python -m explncc viz build/app.opt.yaml --style missed-top --format html --explain-backend rule -o viz.html
+```
+
+Author notes: [docs/chapter-14-notes.md](docs/chapter-14-notes.md). Demo: `make chapter14-demo`.
+
 ## Example output (summary)
 
 Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated `message`. Use `--json` or `--jsonl` for stable downstream tooling.
@@ -116,6 +128,7 @@ Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated
 | `explncc/ci_report.py` | Markdown / JSON / HTML / GitHub-flavored CI reports |
 | `explncc/digest.py` | Per-file and aggregate SHA-256 over `.opt.yaml` inputs |
 | `explncc/config.py` | Backend env + `doctor` payload |
+| `explncc/viz.py` | Mermaid / HTML / JSON visualization bundles (`viz` command) |
 | `explncc/cli.py` | Typer commands |
 
 Subpackages stay small so a book chapter can point to one file at a time.

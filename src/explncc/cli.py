@@ -29,6 +29,7 @@ from explncc.normalizer import load_records_from_path
 from explncc.render import print_table
 from explncc.stats import aggregate
 from explncc.summary import apply_filters, rows_for_table, truncate_message
+from explncc.viz import parse_viz_format, parse_viz_style, render_viz
 
 app = typer.Typer(
     name="explncc",
@@ -82,6 +83,119 @@ def digest_cmd(
     """Emit SHA-256 digests per ``.opt.yaml`` file plus an aggregate cache key."""
     data = build_digest(target)
     typer.echo(format_digest_json(data))
+
+
+@app.command("viz")
+def viz_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    style: Annotated[
+        str,
+        typer.Option(
+            "--style",
+            help="pass-summary | missed-top | pass-remark (see docs/chapter-14-notes.md).",
+        ),
+    ] = "pass-summary",
+    viz_format: Annotated[
+        str,
+        typer.Option("--format", help="mermaid | html | json."),
+    ] = "mermaid",
+    top: Annotated[int, typer.Option("--top", help="Cap nodes or (pass,remark) pairs.")] = 12,
+    title: Annotated[
+        str,
+        typer.Option("--title", help="HTML / JSON title; Mermaid comment when explaining."),
+    ] = "Optimization remarks visualization",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+    pass_contains: Annotated[
+        str | None,
+        typer.Option("--pass", help="Keep remarks whose pass name contains this substring."),
+    ] = None,
+    function_contains: Annotated[
+        str | None,
+        typer.Option(
+            "--function",
+            help="Keep remarks whose function name contains this substring.",
+        ),
+    ] = None,
+    kind: Annotated[str | None, typer.Option("--kind", help="Filter by remark kind.")] = None,
+    explain_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--explain-file",
+            help="Merge this text into html/json (or Mermaid %% comment for mermaid).",
+        ),
+    ] = None,
+    explain_backend: Annotated[
+        str | None,
+        typer.Option(
+            "--explain-backend",
+            help="If set (and no --explain-file), run explainer: rule | ollama | openai | "
+            "claude | auto.",
+        ),
+    ] = None,
+    explain_limit: Annotated[
+        int,
+        typer.Option("--explain-limit", help="Max records passed to explainer."),
+    ] = 32,
+    ai_limit: Annotated[
+        int,
+        typer.Option("--ai-limit", help="Max records serialized for model backends."),
+    ] = 40,
+) -> None:
+    """Emit Mermaid diagrams, HTML with Mermaid.js, or JSON for external graph tools."""
+
+    try:
+        vstyle = parse_viz_style(style)
+    except ValueError:
+        typer.secho(f"unknown --style {style!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from None
+    try:
+        vfmt = parse_viz_format(viz_format)
+    except ValueError:
+        typer.secho(f"unknown --format {viz_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from None
+
+    records = _load_records_or_exit(target)
+    records = apply_filters(
+        records,
+        pass_contains=pass_contains,
+        function_contains=function_contains,
+        kind=kind,
+    )
+
+    explain_text: str | None = None
+    if explain_file is not None:
+        if not explain_file.is_file():
+            typer.secho(f"not a file: {explain_file}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        explain_text = explain_file.read_text(encoding="utf-8")
+    elif explain_backend is not None:
+        config = load_config()
+        mode = explain_backend.strip().lower()
+        if mode == "openai" and not config.openai_api_key:
+            typer.secho("openai backend requires OPENAI_API_KEY", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        if mode == "claude" and not config.anthropic_api_key:
+            typer.secho("claude backend requires ANTHROPIC_API_KEY", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        subset = records[:explain_limit] if explain_limit > 0 else records
+        explain_text = run_explanation(subset, backend=mode, config=config, ai_limit=ai_limit)
+
+    text = render_viz(
+        vfmt,
+        records,
+        vstyle,
+        top=top,
+        title=title,
+        explanation=explain_text,
+    )
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote {output}")
+    else:
+        typer.echo(text.rstrip("\n"))
 
 
 def _load_records_or_exit(path: Path) -> list[OptimizationRecord]:
