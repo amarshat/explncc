@@ -7,13 +7,13 @@ These builders are deterministic except when the caller passes pre-rendered
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal
 
 from explncc.checks import CheckResult
 from explncc.exporters import record_to_json_dict
 from explncc.models import OptimizationRecord
 from explncc.stats import aggregate
-from explncc.summary import truncate_message
 
 ReportFormat = Literal["markdown", "json", "github"]
 
@@ -32,11 +32,55 @@ def parse_report_format(value: str) -> ReportFormat:
     raise ValueError(msg)
 
 
-def _md_cell(value: str | None, max_len: int = 120) -> str:
-    if not value:
+def _normalize_whitespace(text: str | None) -> str:
+    """Collapse runs of whitespace (common when YAML ``Args`` strings are joined)."""
+
+    if not text:
         return ""
-    t = truncate_message(value, max_len)
-    return t.replace("|", "\\|").replace("\n", " ").replace("\r", "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _location_string(record: OptimizationRecord) -> str:
+    """``file:line:column`` when present; never mid-path ellipsis."""
+
+    if not record.file:
+        return "—"
+    loc = record.file
+    if record.line is not None:
+        loc += f":{record.line}"
+        if record.column is not None:
+            loc += f":{record.column}"
+    return loc
+
+
+def _missed_remarks_markdown_sections(
+    missed: list[OptimizationRecord],
+    *,
+    message_max_chars: int = 4000,
+) -> list[str]:
+    """Readable Markdown blocks (no wide tables) for missed remark lists."""
+
+    lines: list[str] = []
+    for i, r in enumerate(missed, start=1):
+        pname = r.pass_name or "—"
+        rname = r.remark_name or "—"
+        lines.append(f"#### {i}. `{pname}` / `{rname}`")
+        lines.append("")
+        lines.append(f"- **Function:** `{r.function or '—'}`")
+        lines.append(f"- **Where:** `{_location_string(r)}`")
+        lines.append("")
+        lines.append("**Compiler message:**")
+        lines.append("")
+        msg = _normalize_whitespace(r.message)
+        if msg:
+            body = msg if len(msg) <= message_max_chars else msg[: message_max_chars - 1] + "…"
+            lines.append("```text")
+            lines.append(body)
+            lines.append("```")
+        else:
+            lines.append("_No message text after normalization._")
+        lines.append("")
+    return lines
 
 
 def top_missed_remarks(records: list[OptimizationRecord], limit: int) -> list[OptimizationRecord]:
@@ -109,18 +153,7 @@ def build_markdown_report(
     if not missed:
         lines.append("_No missed remarks in this slice._")
     else:
-        lines.append("| Pass | Remark | Function | Location | Message |")
-        lines.append("| --- | --- | --- | --- | --- |")
-        for r in missed:
-            loc = ""
-            if r.file:
-                loc = r.file
-                if r.line is not None:
-                    loc += f":{r.line}"
-            lines.append(
-                f"| {_md_cell(r.pass_name, 40)} | {_md_cell(r.remark_name, 40)} | "
-                f"{_md_cell(r.function, 30)} | {_md_cell(loc, 40)} | {_md_cell(r.message, 80)} |",
-            )
+        lines.extend(_missed_remarks_markdown_sections(missed))
     lines.append("")
 
     if explain_text:
@@ -167,14 +200,7 @@ def build_github_comment(
     if not missed:
         lines.append("_None._")
     else:
-        lines.append("| Pass | Remark | Location | Message |")
-        lines.append("| --- | --- | --- | --- |")
-        for r in missed:
-            loc = (r.file or "") + (f":{r.line}" if r.line is not None else "")
-            lines.append(
-                f"| {_md_cell(r.pass_name, 24)} | {_md_cell(r.remark_name, 24)} | "
-                f"{_md_cell(loc, 36)} | {_md_cell(r.message, 60)} |",
-            )
+        lines.extend(_missed_remarks_markdown_sections(missed))
     lines.append("")
     lines.append("</details>")
     lines.append("")

@@ -27,6 +27,27 @@ def test_parse_report_format_invalid() -> None:
         parse_report_format("docx")
 
 
+def test_markdown_collapses_gappy_compiler_message() -> None:
+    recs = [
+        OptimizationRecord(
+            kind="missed",
+            pass_name="gvn",
+            remark_name="LoadClobbered",
+            message="load  of  type   double  not eliminated",
+            file="f.cpp",
+            line=1,
+        ),
+    ]
+    text = build_markdown_report(
+        recs,
+        top_missed=5,
+        check_result=None,
+        explain_text=None,
+        title="T",
+    )
+    assert "load of type double not eliminated" in text
+
+
 def test_top_missed_respects_limit() -> None:
     recs = [
         OptimizationRecord(kind="missed", pass_name="inline", remark_name="A"),
@@ -57,7 +78,11 @@ def test_markdown_contains_sections() -> None:
     )
     assert "# T" in text
     assert "Total remarks" in text
-    assert "inline" in text
+    assert "#### 1." in text
+    assert "`inline`" in text
+    assert "**Compiler message:**" in text
+    assert "```text" in text
+    assert "too costly" in text
 
 
 def test_json_payload_check_block() -> None:
@@ -85,6 +110,7 @@ def test_github_comment_has_details() -> None:
     )
     assert "<details>" in text
     assert "hello" in text
+    assert "```text" in text or "_No message" in text
 
 
 def test_render_report_json_roundtrip() -> None:
