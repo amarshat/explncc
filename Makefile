@@ -14,7 +14,7 @@ help:
 	@echo "explncc Makefile targets"
 	@echo ""
 	@echo "Python / quality:"
-	@echo "  make install-dev   Install package + dev tools (editable)"
+	@echo "  make install-dev   Install package + dev tools (editable; bootstraps pip if missing)"
 	@echo "  make lint          Ruff lint"
 	@echo "  make typecheck     Mypy on src/"
 	@echo "  make test          Pytest"
@@ -136,6 +136,14 @@ $(UNROLL_UNKNOWN): examples/unroll_unknown_trip/main.cpp
 install: install-dev
 
 install-dev:
+	@command -v $(PYTHON) >/dev/null || { echo "Python not found: $(PYTHON)"; exit 1; }
+	@$(PYTHON) -c "import pip" 2>/dev/null || { \
+		echo "pip missing; bootstrapping with ensurepip..."; \
+		$(PYTHON) -m ensurepip --upgrade || { \
+			echo "ensurepip failed. Recreate the venv, e.g.: rm -rf .venv && python3 -m venv .venv"; \
+			exit 1; \
+		}; \
+	}
 	$(PYTHON) -m pip install -e ".[dev]"
 
 lint:
