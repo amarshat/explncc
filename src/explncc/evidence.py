@@ -36,6 +36,10 @@ class EvidencePack(BaseModel):
     """Deterministic, minimal evidence derived from one :class:`OptimizationRecord`."""
 
     pack_id: str
+    optimization_log_path: str | None = Field(
+        default=None,
+        description="Path to the .opt.yaml document stream this pack was built from.",
+    )
     source_file: str | None = Field(
         default=None,
         description="Source path from the remark's DebugLoc (not the .opt.yaml path).",
@@ -193,6 +197,7 @@ def build_evidence_pack(
 
     pack = EvidencePack(
         pack_id=_pack_id(record, ordinal=ordinal),
+        optimization_log_path=record.source_path,
         source_file=record.file,
         function=record.function,
         debug_location=DebugLocation(file=record.file, line=record.line, column=record.column),

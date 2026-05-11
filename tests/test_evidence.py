@@ -4,15 +4,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from explncc.evidence import (
     EvidencePack,
     build_evidence_pack,
     build_evidence_packs,
 )
+from explncc.evidence_output import render_evidence_packs
 from explncc.normalizer import load_records_from_path
 
 FIXTURE_SIMD = Path(__file__).resolve().parent / "fixtures" / "simd_vectorized.opt.yaml"
 FIXTURE_INLINE = Path(__file__).resolve().parent / "fixtures" / "inline_miss_no_definition.opt.yaml"
+
+
+def test_render_unknown_format_raises() -> None:
+    with pytest.raises(ValueError, match="unknown evidence format"):
+        render_evidence_packs([], "xml")
+
+
+def test_render_evidence_json_and_markdown() -> None:
+    records = load_records_from_path(FIXTURE_SIMD)
+    packs = build_evidence_packs(records)
+    js = render_evidence_packs(packs, "json")
+    assert '"pack_id"' in js
+    md = render_evidence_packs(packs, "markdown")
+    assert "# Evidence packs" in md
+    assert "normalized_message" in md
+    jsl = render_evidence_packs(packs, "jsonl")
+    assert jsl.strip().startswith("{")
 
 
 def test_evidence_pack_schema_roundtrip() -> None:
@@ -129,3 +149,4 @@ Args:
     assert pack.target_triple == "x86_64-pc-linux-gnu"
     assert pack.has_target is True
     assert "target_triple" not in pack.missing_context
+    assert pack.optimization_log_path == str(yaml_path.resolve())

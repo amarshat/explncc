@@ -40,6 +40,7 @@ def test_help_no_subcommand() -> None:
     assert "digest" in result.stdout
     assert "doctor" in result.stdout
     assert "viz" in result.stdout
+    assert "evidence" in result.stdout
 
 
 def test_digest_json_shape() -> None:
@@ -142,6 +143,50 @@ def test_dataset_writes_jsonl(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert out.is_file()
     assert '"messages"' in out.read_text(encoding="utf-8")
+
+
+def test_evidence_json_stdout() -> None:
+    result = runner.invoke(app, ["evidence", str(FIXTURE_SIMD), "--format", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["primary_pass"] == "loop-vectorize"
+    assert "optimization_log_path" in data[0]
+
+
+def test_evidence_kind_filter_jsonl() -> None:
+    result = runner.invoke(
+        app,
+        ["evidence", str(FIXTURE), "--kind", "missed", "--format", "jsonl"],
+    )
+    assert result.exit_code == 0
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["primary_remark"] == "NoDefinition"
+
+
+def test_evidence_bad_format() -> None:
+    result = runner.invoke(app, ["evidence", str(TINY), "--format", "yaml"])
+    assert result.exit_code == 2
+
+
+def test_evidence_include_source_requires_source_root() -> None:
+    result = runner.invoke(app, ["evidence", str(TINY), "--include-source"])
+    assert result.exit_code == 2
+
+
+def test_evidence_include_ir_requires_ir_file() -> None:
+    result = runner.invoke(app, ["evidence", str(TINY), "--include-ir"])
+    assert result.exit_code == 2
+
+
+def test_evidence_output_file(tmp_path: Path) -> None:
+    out = tmp_path / "evidence.json"
+    result = runner.invoke(app, ["evidence", str(FIXTURE_SIMD), "-o", str(out)])
+    assert result.exit_code == 0
+    assert out.is_file()
+    assert json.loads(out.read_text(encoding="utf-8"))[0]["pack_id"]
 
 
 def test_bench_prompts_variants() -> None:

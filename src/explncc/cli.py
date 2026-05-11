@@ -22,6 +22,8 @@ from explncc.dataset_llm import (
 )
 from explncc.diffing import DiffReport, diff_records
 from explncc.digest import build_digest, format_digest_json
+from explncc.evidence import build_evidence_packs
+from explncc.evidence_output import render_evidence_packs
 from explncc.explain.backends import run_explanation
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
 from explncc.models import OptimizationRecord
@@ -220,6 +222,126 @@ def _diff_report_to_jsonable(report: DiffReport) -> dict[str, Any]:
         "reason_delta_missed": report.reason_delta_missed,
         "function_delta_missed": report.function_delta_missed,
     }
+
+
+@app.command("evidence")
+def evidence_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    pass_contains: Annotated[
+        str | None,
+        typer.Option("--pass", help="Keep remarks whose pass name contains this substring."),
+    ] = None,
+    function_contains: Annotated[
+        str | None,
+        typer.Option(
+            "--function",
+            help="Keep remarks whose demangled or mangled function name contains this substring.",
+        ),
+    ] = None,
+    kind: Annotated[
+        str | None,
+        typer.Option("--kind", help="Filter by remark kind: missed, passed, or analysis."),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", help="Max evidence packs after filtering.")] = 0,
+    evidence_format: Annotated[
+        str,
+        typer.Option("--format", help="json | jsonl | markdown"),
+    ] = "json",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+    include_source: Annotated[
+        bool,
+        typer.Option(
+            "--include-source",
+            help="Attach a source window around DebugLoc (requires snippet support).",
+        ),
+    ] = False,
+    source_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--source-root",
+            help="Project root for resolving relative DebugLoc paths (with --include-source).",
+        ),
+    ] = None,
+    context_before: Annotated[
+        int,
+        typer.Option(
+            "--context-before",
+            help="Lines before the remark line (with --include-source).",
+        ),
+    ] = 5,
+    context_after: Annotated[
+        int,
+        typer.Option(
+            "--context-after",
+            help="Lines after the remark line (with --include-source).",
+        ),
+    ] = 8,
+    include_ir: Annotated[
+        bool,
+        typer.Option("--include-ir", help="Attach a bounded LLVM IR slice (requires IR support)."),
+    ] = False,
+    ir_file: Annotated[
+        Path | None,
+        typer.Option("--ir-file", help="IR file to slice (with --include-ir)."),
+    ] = None,
+    ir_lines: Annotated[
+        int,
+        typer.Option("--ir-lines", help="Approximate max IR lines in the snippet."),
+    ] = 40,
+) -> None:
+    """Emit Chapter 10 evidence packs (deterministic JSON / JSONL / Markdown)."""
+
+    if include_source and source_root is None:
+        typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_ir and ir_file is None:
+        typer.secho("--include-ir requires --ir-file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_source or include_ir:
+        typer.secho(
+            "note: --include-source / --include-ir / --ir-file are not implemented yet; "
+            "snippets are omitted (Chapter 10 milestone 3).",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+    if context_before < 0 or context_after < 0:
+        typer.secho(
+            "--context-before and --context-after must be non-negative",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if ir_lines < 1:
+        typer.secho("--ir-lines must be at least 1", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    # source_root, context_before, context_after, ir_lines: reserved for milestone 3 snippets.
+
+    records = _load_records_or_exit(target)
+    records = apply_filters(
+        records,
+        pass_contains=pass_contains,
+        function_contains=function_contains,
+        kind=kind,
+    )
+    if limit > 0:
+        records = records[:limit]
+
+    packs = build_evidence_packs(records)
+    try:
+        text = render_evidence_packs(packs, evidence_format)
+    except ValueError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote {len(packs)} evidence pack(s) to {output}")
+    else:
+        typer.echo(text.rstrip("\n"))
 
 
 @app.command("summary")
