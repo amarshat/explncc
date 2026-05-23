@@ -1,0 +1,8 @@
+--- !Missed
+Pass:            loop-vectorize
+Name:            MissedDetails
+DebugLoc:        { File: 'main.cpp', Line: 4, Column: 3 }
+Function:        _Z9scale_addPfPKfi
+Args:
+  - String:          'cannot prove memory independence'
+...

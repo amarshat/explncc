@@ -1,0 +1,9 @@
+--- !Passed
+Pass:            loop-vectorize
+Name:            Vectorized
+DebugLoc:        { File: 'main.cpp', Line: 8, Column: 5 }
+Function:        _Z14sum_unalignedPKfi
+Args:
+  - String:          'vectorized with _mm256_loadu_ps (unaligned access)'
+  - VectorizationFactor: '8'
+...

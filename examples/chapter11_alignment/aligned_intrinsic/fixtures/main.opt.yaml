@@ -1,0 +1,9 @@
+--- !Passed
+Pass:            loop-vectorize
+Name:            Vectorized
+DebugLoc:        { File: 'main.cpp', Line: 8, Column: 5 }
+Function:        _Z12sum_alignedPKfi
+Args:
+  - String:          'vectorized loop using _mm256_load_ps'
+  - VectorizationFactor: '8'
+...

@@ -1,0 +1,8 @@
+--- !Missed
+Pass:            loop-vectorize
+Name:            NotBeneficial
+DebugLoc:        { File: 'main.cpp', Line: 4, Column: 3 }
+Function:        _Z4bumpPfi
+Args:
+  - String:          'cost threshold prevents vectorization'
+...

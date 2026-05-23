@@ -1,0 +1,12 @@
+--- !Passed
+Pass:            loop-vectorize
+Name:            Vectorized
+DebugLoc:        { File: 'main.cpp', Line: 7, Column: 3 }
+Function:        _Z18accumulate_offsetPKfi
+Args:
+  - String:          'vectorized '
+  - String:          ''
+  - String:          'loop (vectorization width: '
+  - VectorizationFactor: '4'
+  - String:          ')'
+...
