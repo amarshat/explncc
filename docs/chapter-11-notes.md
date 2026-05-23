@@ -150,7 +150,7 @@ source → compiler → .opt.yaml / IR / assembly
   → eval-alignment
 ```
 
-Milestone 1 adds classification to `explncc alignment`. Milestone 2 adds `explncc alignment-pack`. Milestone 3 adds source/IR/assembly attachment. Milestone 4 adds `examples/chapter11_alignment/` with six case studies and fixture `.opt.yaml` files. Milestone 5 extends `explncc dataset --focus alignment` with labeled rows and conservative teachers. Milestone 6 extends `bench-prompts` with adversarial and missing-context variants plus overreach traps. Later milestones add evaluator, Make targets, and full test coverage.
+Milestone 1 adds classification to `explncc alignment`. Milestone 2 adds `explncc alignment-pack`. Milestone 3 adds source/IR/assembly attachment. Milestone 4 adds `examples/chapter11_alignment/` with six case studies and fixture `.opt.yaml` files. Milestone 5 extends `explncc dataset --focus alignment` with labeled rows and conservative teachers. Milestone 6 extends `bench-prompts` with adversarial and missing-context variants plus overreach traps. Milestone 7 adds `eval-alignment` heuristic scoring. Later milestones add documentation, Make targets, and full test coverage.
 
 ## Chapter 11 examples (milestone 4)
 
@@ -230,4 +230,33 @@ Each line includes: `sample_id`, `variant`, `prompt`, `expected_alignment_label`
 
 ```bash
 pytest tests/test_alignment_bench.py -q
+```
+
+## Evaluate model outputs (milestone 7)
+
+Score offline model predictions heuristically (no LLM judge):
+
+```bash
+python -m explncc eval-alignment tests/fixtures/alignment_predictions.jsonl --format json
+
+python -m explncc eval-alignment tests/fixtures/alignment_predictions.jsonl \
+  --format markdown \
+  --output /tmp/eval-report.md
+```
+
+Input JSONL rows should include `sample_id`, `model_output`, `expected_alignment_label`, and optionally `expected_good_behavior`, `missing_context`, `evidence`, `overreach_traps`.
+
+Scores per sample (max 10 before penalties):
+
+| Dimension | Range |
+|-----------|-------|
+| evidence_fidelity | 0–2 |
+| alignment_discipline | 0–2 |
+| missing_context_awareness | 0–2 |
+| next_step_quality | 0–2 |
+| overreach_penalty | 0 to −3 |
+| conciseness | 0–1 |
+
+```bash
+pytest tests/test_alignment_eval.py -q
 ```

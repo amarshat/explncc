@@ -10,6 +10,8 @@ from explncc.alignment import AlignmentLabel, alignment_signals, classify_alignm
 from explncc.alignment_pack import ALIGNMENT_LABELS, build_alignment_evidence_packs
 from explncc.alignment_pack_output import render_alignment_evidence_packs
 from explncc.alignment_bench import build_alignment_bench_prompt_lines
+from explncc.alignment_eval import evaluate_predictions, load_predictions_jsonl
+from explncc.alignment_eval_output import render_eval_report
 from explncc.alignment_dataset import (
     ALIGNMENT_EXPORT_FORMATS,
     AlignmentExportFormat,
@@ -1201,6 +1203,55 @@ def bench_prompts_cmd(
         typer.echo(f"wrote {len(lines)} bench lines to {output}")
     else:
         typer.echo(text)
+
+
+@app.command("eval-alignment")
+def eval_alignment_cmd(
+    predictions: Annotated[
+        Path,
+        typer.Argument(help="JSONL file with model outputs and expected labels."),
+    ],
+    eval_format: Annotated[
+        str,
+        typer.Option("--format", help="json | markdown"),
+    ] = "json",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write report to this file; default stdout."),
+    ] = None,
+) -> None:
+    """Score alignment model outputs heuristically (no LLM judge)."""
+
+    fmt_l = eval_format.strip().lower()
+    if fmt_l not in {"json", "markdown"}:
+        typer.secho("--format must be json or markdown", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if not predictions.is_file():
+        typer.secho(f"file not found: {predictions}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    try:
+        rows = load_predictions_jsonl(predictions)
+    except (ValueError, TypeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    if not rows:
+        typer.secho("no prediction rows found", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    report = evaluate_predictions(rows)
+    try:
+        text = render_eval_report(report, fmt_l)
+    except ValueError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote eval report for {len(report.samples)} sample(s) to {output}")
+    else:
+        typer.echo(text.rstrip("\n"))
 
 
 def main() -> None:
