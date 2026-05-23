@@ -9,6 +9,8 @@ PYTHON ?= python3
 .PHONY: build-inline-miss build-inline-costly build-vectorize-fail build-vectorize-success
 .PHONY: build-unroll-fixed build-unroll-unknown
 .PHONY: summarize-all explain-all diff-demo demo chapter11-demo chapter12-demo chapter14-demo
+.PHONY: chapter11 chapter11-examples chapter11-alignment chapter11-packs chapter11-dataset
+.PHONY: chapter11-bench-prompts chapter11-eval-fixture chapter11-clean
 
 help:
 	@echo "explncc Makefile targets"
@@ -28,6 +30,10 @@ help:
 	@echo ""
 	@echo "explncc demos (after install-dev + examples):"
 	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo | chapter12-demo | chapter14-demo"
+	@echo ""
+	@echo "Chapter 11 alignment pipeline (fixture-based; no Clang required):"
+	@echo "  make chapter11 | chapter11-examples | chapter11-alignment | chapter11-packs"
+	@echo "  make chapter11-dataset | chapter11-bench-prompts | chapter11-eval-fixture | chapter11-clean"
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -85,10 +91,59 @@ diff-demo: examples
 
 demo: summarize-all diff-demo
 
-chapter11-demo: examples
-	$(EXPLNCC) alignment $(EX_BUILD)/vectorize_success/ --limit 15
-	$(EXPLNCC) bench-prompts $(EX_BUILD)/vectorize_success/vectorize_success.opt.yaml \
-		--focus alignment --templates minimal,guided --limit 3 | head -n 2
+chapter11-demo: chapter11-alignment chapter11-bench-prompts
+	@echo "chapter11-demo: see build/chapter11/"
+
+CH11_BUILD := build/chapter11
+CH11_ROOT := examples/chapter11_alignment
+CH11_EXAMPLES := vectorized_no_alignment_claim aliasing_not_alignment cost_not_alignment aligned_intrinsic unaligned_intrinsic offset_pointer_plausible
+
+chapter11-examples:
+	@for ex in $(CH11_EXAMPLES); do \
+		mkdir -p $(CH11_BUILD)/$$ex; \
+		cp $(CH11_ROOT)/$$ex/fixtures/main.opt.yaml $(CH11_BUILD)/$$ex/main.opt.yaml; \
+	done
+	@echo "staged $(words $(CH11_EXAMPLES)) chapter 11 fixture(s) under $(CH11_BUILD)/"
+
+chapter11-alignment: chapter11-examples
+	@mkdir -p $(CH11_BUILD)/alignment
+	$(EXPLNCC) alignment $(CH11_BUILD)/ --limit 20 --json > $(CH11_BUILD)/alignment/remarks.json
+	@echo "wrote $(CH11_BUILD)/alignment/remarks.json"
+
+chapter11-packs: chapter11-examples
+	@mkdir -p $(CH11_BUILD)/packs
+	$(EXPLNCC) alignment-pack $(CH11_BUILD)/ --format jsonl --limit 20 \
+		-o $(CH11_BUILD)/packs/packs.jsonl
+	$(EXPLNCC) alignment-pack $(CH11_BUILD)/aliasing_not_alignment/main.opt.yaml \
+		--include-source --source-root $(CH11_ROOT)/aliasing_not_alignment \
+		--format markdown -o $(CH11_BUILD)/packs/aliasing-sample.md
+	@echo "wrote $(CH11_BUILD)/packs/"
+
+chapter11-dataset: chapter11-examples
+	@mkdir -p $(CH11_BUILD)/datasets
+	$(EXPLNCC) dataset $(CH11_BUILD)/ --focus alignment --template guided \
+		--format explncc-record -o $(CH11_BUILD)/datasets/alignment-guided.jsonl
+	@echo "wrote $(CH11_BUILD)/datasets/alignment-guided.jsonl"
+
+chapter11-bench-prompts: chapter11-examples
+	@mkdir -p $(CH11_BUILD)/prompts
+	$(EXPLNCC) bench-prompts $(CH11_BUILD)/ --focus alignment \
+		--templates minimal,guided,rubric,adversarial,missing-context --limit 20 \
+		-o $(CH11_BUILD)/prompts/bench-prompts.jsonl
+	@echo "wrote $(CH11_BUILD)/prompts/bench-prompts.jsonl"
+
+chapter11-eval-fixture: chapter11-examples
+	@mkdir -p $(CH11_BUILD)/eval
+	cp tests/fixtures/alignment_predictions.jsonl $(CH11_BUILD)/eval/sample-predictions.jsonl
+	$(EXPLNCC) eval-alignment $(CH11_BUILD)/eval/sample-predictions.jsonl \
+		--format markdown -o $(CH11_BUILD)/eval/report.md
+	@echo "wrote $(CH11_BUILD)/eval/report.md"
+
+chapter11-clean:
+	rm -rf $(CH11_BUILD)
+
+chapter11: chapter11-alignment chapter11-packs chapter11-dataset chapter11-bench-prompts chapter11-eval-fixture
+	@echo "chapter 11 pipeline artifacts under $(CH11_BUILD)/"
 
 chapter12-demo:
 	$(EXPLNCC) report tests/fixtures/inline_miss_no_definition.opt.yaml \
@@ -167,6 +222,7 @@ DOCS := \
 	docs/model-backends.md \
 	docs/chapter-10-notes.md \
 	docs/chapter-11-notes.md \
+	docs/chapter-11-alignment.md \
 	docs/chapter-12-notes.md \
 	docs/chapter-13-notes.md \
 	docs/chapter-14-notes.md

@@ -10,6 +10,6 @@ Each directory under `examples/` is a minimal C++ program aimed at one optimizat
 | `vectorize_success` | Independent accesses (e.g. `restrict`-style contract): vectorization can succeed at `-O3`. |
 | `unroll_fixed_trip` | Small constant trip count: loop unrolling is predictable. |
 | `unroll_unknown_trip` | Trip count from memory/unknown: full unroll less likely; remarks show uncertainty tradeoffs. |
-| `chapter11_alignment/` | Chapter 11: six alignment-evidence case studies with fixture `.opt.yaml` files (see [chapter-11-notes.md](chapter-11-notes.md)). |
+| `chapter11_alignment/` | Chapter 11: six alignment-evidence case studies with fixture `.opt.yaml` files (see [chapter-11-alignment.md](chapter-11-alignment.md)). |
 
 Use `explncc summary` and `explncc explain` on the generated `.opt.yaml` to connect source patterns to compiler language.

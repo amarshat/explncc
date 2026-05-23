@@ -55,14 +55,18 @@ python -m explncc dataset build/examples/vectorize_aliasing_fail/ \
   --template guided \
   --format explncc-record
 
-# Same remarks × multiple prompt shapes (for benchmark sweeps)
-python -m explncc bench-prompts build/examples/vectorize_success/vectorize_success.opt.yaml \
-  --focus alignment \
-  --templates minimal,guided,rubric \
+# Prompt A/B fixtures + evaluator
+python -m explncc bench-prompts examples/chapter11_alignment/ \
+  --focus alignment --templates minimal,guided,rubric,adversarial,missing-context \
   -o /tmp/ch11_bench.jsonl
+
+python -m explncc eval-alignment tests/fixtures/alignment_predictions.jsonl --format markdown
+
+# Full fixture pipeline (no Clang required)
+make chapter11
 ```
 
-See [docs/chapter-11-notes.md](docs/chapter-11-notes.md) for how this maps to the chapter outline and where **IR** must be joined in separately.
+See [docs/chapter-11-alignment.md](docs/chapter-11-alignment.md) for the full pipeline guide and [docs/chapter-11-notes.md](docs/chapter-11-notes.md) for a short companion.
 
 ### Chapter 12 (CI, job summaries, PR comments, triage)
 
