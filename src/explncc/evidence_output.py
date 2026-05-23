@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+from explncc.context_snippets import format_source_snippet_markdown
 from explncc.evidence import EvidencePack
 
 
@@ -77,7 +78,7 @@ def _render_markdown(packs: Sequence[EvidencePack]) -> str:
 
         if p.source_snippet:
             parts.append("\n**source_snippet:**\n\n")
-            parts.append(_indented_block(p.source_snippet))
+            parts.append(format_source_snippet_markdown(p.source_snippet))
 
         if p.ir_snippet:
             parts.append("\n**ir_snippet:**\n\n")

@@ -4,22 +4,32 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
-import typer
-from rich.console import Console
-
-from explncc import __version__
-from explncc.alignment import alignment_signals, filter_alignment_related
-from explncc.checks import CheckResult, run_checks
-from explncc.ci_report import parse_report_format, render_report
-from explncc.config import doctor_payload, load_config
+from explncc.alignment import AlignmentLabel, alignment_signals, classify_alignment, filter_alignment_related
+from explncc.alignment_pack import ALIGNMENT_LABELS, build_alignment_evidence_packs
+from explncc.alignment_pack_output import render_alignment_evidence_packs
+from explncc.alignment_bench import build_alignment_bench_prompt_lines
+from explncc.alignment_dataset import (
+    ALIGNMENT_EXPORT_FORMATS,
+    AlignmentExportFormat,
+    build_alignment_training_rows,
+)
+from explncc.context_snippets import ContextSnippetRequest
 from explncc.dataset_llm import (
     ExportFormat,
     build_bench_prompt_lines,
     build_training_rows,
     write_jsonl,
 )
+
+import typer
+from rich.console import Console
+
+from explncc import __version__
+from explncc.checks import CheckResult, run_checks
+from explncc.ci_report import parse_report_format, render_report
+from explncc.config import doctor_payload, load_config
 from explncc.diffing import DiffReport, diff_records
 from explncc.digest import build_digest, format_digest_json
 from explncc.evidence import build_evidence_packs
@@ -40,6 +50,35 @@ app = typer.Typer(
     help="Parse and analyze Clang/LLVM optimization remark logs (.opt.yaml).",
 )
 stdout_console = Console()
+
+
+def _context_snippet_request(
+    *,
+    include_source: bool,
+    source_root: Path | None,
+    context_before: int,
+    context_after: int,
+    include_ir: bool,
+    ir_file: Path | None,
+    ir_lines: int,
+    include_asm: bool = False,
+    asm_file: Path | None = None,
+    asm_lines: int = 60,
+) -> ContextSnippetRequest | None:
+    if not (include_source or include_ir or include_asm):
+        return None
+    return ContextSnippetRequest(
+        include_source=include_source,
+        source_root=source_root,
+        context_before=context_before,
+        context_after=context_after,
+        include_ir=include_ir,
+        ir_file=ir_file,
+        ir_lines=ir_lines,
+        include_asm=include_asm,
+        asm_file=asm_file,
+        asm_lines=asm_lines,
+    )
 
 
 def _version_callback(value: bool) -> None:
@@ -300,13 +339,6 @@ def evidence_cmd(
     if include_ir and ir_file is None:
         typer.secho("--include-ir requires --ir-file", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
-    if include_source or include_ir:
-        typer.secho(
-            "note: --include-source / --include-ir / --ir-file are not implemented yet; "
-            "snippets are omitted (Chapter 10 milestone 3).",
-            fg=typer.colors.YELLOW,
-            err=True,
-        )
     if context_before < 0 or context_after < 0:
         typer.secho(
             "--context-before and --context-after must be non-negative",
@@ -318,8 +350,6 @@ def evidence_cmd(
         typer.secho("--ir-lines must be at least 1", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    # source_root, context_before, context_after, ir_lines: reserved for milestone 3 snippets.
-
     records = _load_records_or_exit(target)
     records = apply_filters(
         records,
@@ -330,7 +360,16 @@ def evidence_cmd(
     if limit > 0:
         records = records[:limit]
 
-    packs = build_evidence_packs(records)
+    context = _context_snippet_request(
+        include_source=include_source,
+        source_root=source_root,
+        context_before=context_before,
+        context_after=context_after,
+        include_ir=include_ir,
+        ir_file=ir_file,
+        ir_lines=ir_lines,
+    )
+    packs = build_evidence_packs(records, context=context)
     try:
         text = render_evidence_packs(packs, evidence_format)
     except ValueError as exc:
@@ -776,6 +815,7 @@ def alignment_cmd(
         for r in filtered:
             row = record_to_json_dict(r)
             row["alignment_signals"] = alignment_signals(r)
+            row.update(classify_alignment(r).to_dict())
             payload.append(row)
         typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         return
@@ -787,6 +827,7 @@ def alignment_cmd(
             loc = r.file
             if r.line is not None:
                 loc += f":{r.line}"
+        classification = classify_alignment(r)
         rows_out.append(
             [
                 r.kind or "",
@@ -794,16 +835,174 @@ def alignment_cmd(
                 r.remark_name or "",
                 r.function or "",
                 loc,
+                classification.alignment_label,
+                classification.alignment_confidence,
                 ";".join(alignment_signals(r)),
                 truncate_message(r.message, 100),
             ],
         )
     print_table(
         stdout_console,
-        ("kind", "pass", "remark", "function", "location", "signals", "message"),
+        (
+            "kind",
+            "pass",
+            "remark",
+            "function",
+            "location",
+            "label",
+            "conf",
+            "signals",
+            "message",
+        ),
         rows_out,
         title=f"alignment slice ({len(filtered)} remarks, heuristic)",
     )
+
+
+@app.command("alignment-pack")
+def alignment_pack_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    pack_format: Annotated[
+        str,
+        typer.Option("--format", help="json | jsonl | markdown"),
+    ] = "json",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+    include_source: Annotated[
+        bool,
+        typer.Option(
+            "--include-source",
+            help="Attach a source window around DebugLoc (requires snippet support).",
+        ),
+    ] = False,
+    source_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--source-root",
+            help="Project root for resolving relative DebugLoc paths (with --include-source).",
+        ),
+    ] = None,
+    context_before: Annotated[
+        int,
+        typer.Option(
+            "--context-before",
+            help="Lines before the remark line (with --include-source).",
+        ),
+    ] = 5,
+    context_after: Annotated[
+        int,
+        typer.Option(
+            "--context-after",
+            help="Lines after the remark line (with --include-source).",
+        ),
+    ] = 8,
+    include_ir: Annotated[
+        bool,
+        typer.Option("--include-ir", help="Attach a bounded LLVM IR slice (requires IR support)."),
+    ] = False,
+    ir_file: Annotated[
+        Path | None,
+        typer.Option("--ir-file", help="IR file to slice (with --include-ir)."),
+    ] = None,
+    ir_lines: Annotated[
+        int,
+        typer.Option("--ir-lines", help="Approximate max IR lines in the snippet."),
+    ] = 50,
+    include_asm: Annotated[
+        bool,
+        typer.Option(
+            "--include-asm",
+            help="Attach a bounded assembly slice (requires assembly support).",
+        ),
+    ] = False,
+    asm_file: Annotated[
+        Path | None,
+        typer.Option("--asm-file", help="Assembly file to slice (with --include-asm)."),
+    ] = None,
+    asm_lines: Annotated[
+        int,
+        typer.Option("--asm-lines", help="Approximate max assembly lines in the snippet."),
+    ] = 60,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Max alignment evidence packs after filtering."),
+    ] = 0,
+    label: Annotated[
+        str | None,
+        typer.Option(
+            "--label",
+            help=(
+                "Keep only packs with this alignment_label: alignment_explicit, "
+                "alignment_plausible_not_proven, alignment_unlikely_from_evidence, "
+                "insufficient_evidence, not_alignment_related."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Emit Chapter 11 alignment evidence packs (deterministic JSON / JSONL / Markdown)."""
+
+    if include_source and source_root is None:
+        typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_ir and ir_file is None:
+        typer.secho("--include-ir requires --ir-file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_asm and asm_file is None:
+        typer.secho("--include-asm requires --asm-file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if context_before < 0 or context_after < 0:
+        typer.secho(
+            "--context-before and --context-after must be non-negative",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if ir_lines < 1:
+        typer.secho("--ir-lines must be at least 1", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if asm_lines < 1:
+        typer.secho("--asm-lines must be at least 1", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if label is not None and label not in ALIGNMENT_LABELS:
+        typer.secho(
+            f"unknown --label {label!r}; expected one of: {', '.join(sorted(ALIGNMENT_LABELS))}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    records = _load_records_or_exit(target)
+    records = filter_alignment_related(records)
+    if limit > 0:
+        records = records[:limit]
+
+    label_filter: AlignmentLabel | None = cast(AlignmentLabel, label) if label else None
+    context = _context_snippet_request(
+        include_source=include_source,
+        source_root=source_root,
+        context_before=context_before,
+        context_after=context_after,
+        include_ir=include_ir,
+        ir_file=ir_file,
+        ir_lines=ir_lines,
+        include_asm=include_asm,
+        asm_file=asm_file,
+        asm_lines=asm_lines,
+    )
+    packs = build_alignment_evidence_packs(records, label=label_filter, context=context)
+    try:
+        text = render_alignment_evidence_packs(packs, pack_format)
+    except ValueError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote {len(packs)} alignment evidence pack(s) to {output}")
+    else:
+        typer.echo(text.rstrip("\n"))
 
 
 @app.command("dataset")
@@ -822,7 +1021,10 @@ def dataset_cmd(
         str,
         typer.Option(
             "--format",
-            help="openai-messages | explncc-record | legacy-prompt-completion",
+            help=(
+                "openai-messages | explncc-record | legacy-prompt-completion | "
+                "plain-prompt-completion | chatml"
+            ),
         ),
     ] = "explncc-record",
     teacher: Annotated[
@@ -838,8 +1040,34 @@ def dataset_cmd(
         bool,
         typer.Option("--include-args-raw", help="Keep bulky args_raw in JSON (larger prompts)."),
     ] = False,
+    include_source: Annotated[
+        bool,
+        typer.Option("--include-source", help="Attach source snippet into dataset rows."),
+    ] = False,
+    source_root: Annotated[
+        Path | None,
+        typer.Option("--source-root", help="Root for DebugLoc paths (with --include-source)."),
+    ] = None,
+    context_before: Annotated[int, typer.Option("--context-before")] = 5,
+    context_after: Annotated[int, typer.Option("--context-after")] = 8,
+    include_ir: Annotated[bool, typer.Option("--include-ir")] = False,
+    ir_file: Annotated[Path | None, typer.Option("--ir-file")] = None,
+    ir_lines: Annotated[int, typer.Option("--ir-lines")] = 50,
+    include_asm: Annotated[bool, typer.Option("--include-asm")] = False,
+    asm_file: Annotated[Path | None, typer.Option("--asm-file")] = None,
+    asm_lines: Annotated[int, typer.Option("--asm-lines")] = 60,
 ) -> None:
     """Emit JSONL rows for LLM fine-tuning / instruction datasets (Chapter 11 workflows)."""
+
+    if include_source and source_root is None:
+        typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_ir and ir_file is None:
+        typer.secho("--include-ir requires --ir-file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if include_asm and asm_file is None:
+        typer.secho("--include-asm requires --asm-file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
 
     records = _load_records_or_exit(target)
     focus_l = focus.strip().lower()
@@ -856,28 +1084,58 @@ def dataset_cmd(
         raise typer.Exit(1)
 
     fmt_l = export_format.strip().lower()
-    allowed: dict[str, ExportFormat] = {
-        "openai-messages": "openai-messages",
-        "explncc-record": "explncc-record",
-        "legacy-prompt-completion": "legacy-prompt-completion",
-    }
-    if fmt_l not in allowed:
-        typer.secho(f"unknown --format {export_format!r}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
-
-    export_fmt: ExportFormat = allowed[fmt_l]
-    try:
-        rows = build_training_rows(
-            records,
-            template_id=template,
-            export_format=export_fmt,
-            use_teacher=teacher,
-            teacher_placeholder=placeholder,
-            include_args_raw=include_args_raw,
+    if focus_l == "alignment":
+        if fmt_l not in ALIGNMENT_EXPORT_FORMATS:
+            typer.secho(f"unknown --format {export_format!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        context = _context_snippet_request(
+            include_source=include_source,
+            source_root=source_root,
+            context_before=context_before,
+            context_after=context_after,
+            include_ir=include_ir,
+            ir_file=ir_file,
+            ir_lines=ir_lines,
+            include_asm=include_asm,
+            asm_file=asm_file,
+            asm_lines=asm_lines,
         )
-    except KeyError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
+        try:
+            export_fmt = cast(AlignmentExportFormat, fmt_l)
+            rows = build_alignment_training_rows(
+                records,
+                template_id=template,
+                export_format=export_fmt,
+                use_teacher=teacher,
+                teacher_placeholder=placeholder,
+                include_args_raw=include_args_raw,
+                context=context,
+            )
+        except KeyError as exc:
+            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
+    else:
+        allowed: dict[str, ExportFormat] = {
+            "openai-messages": "openai-messages",
+            "explncc-record": "explncc-record",
+            "legacy-prompt-completion": "legacy-prompt-completion",
+        }
+        if fmt_l not in allowed:
+            typer.secho(f"unknown --format {export_format!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        export_fmt: ExportFormat = allowed[fmt_l]
+        try:
+            rows = build_training_rows(
+                records,
+                template_id=template,
+                export_format=export_fmt,
+                use_teacher=teacher,
+                teacher_placeholder=placeholder,
+                include_args_raw=include_args_raw,
+            )
+        except KeyError as exc:
+            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
 
     write_jsonl(output, rows)
     typer.echo(f"wrote {len(rows)} JSONL records to {output}")
@@ -898,7 +1156,7 @@ def bench_prompts_cmd(
         str | None,
         typer.Option(
             "--templates",
-            help="Comma-separated template ids (default: all Chapter 11 templates).",
+            help="Comma-separated template ids (alignment: minimal,guided,rubric,adversarial,missing-context).",
         ),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", help="Max records after focus filter.")] = 0,
@@ -921,11 +1179,18 @@ def bench_prompts_cmd(
 
     t_ids = [x.strip() for x in templates.split(",") if x.strip()] if templates else None
     try:
-        lines = build_bench_prompt_lines(
-            records,
-            template_ids=t_ids,
-            include_args_raw=include_args_raw,
-        )
+        if focus_l == "alignment":
+            lines = build_alignment_bench_prompt_lines(
+                records,
+                template_ids=t_ids,
+                include_args_raw=include_args_raw,
+            )
+        else:
+            lines = build_bench_prompt_lines(
+                records,
+                template_ids=t_ids,
+                include_args_raw=include_args_raw,
+            )
     except KeyError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc

@@ -121,6 +121,61 @@ def test_alignment_json_includes_signals() -> None:
     data = json.loads(result.stdout)
     assert data[0]["pass_name"] == "loop-vectorize"
     assert "alignment_signals" in data[0]
+    assert data[0]["alignment_label"] == "alignment_plausible_not_proven"
+    assert data[0]["alignment_confidence"] == "medium"
+    assert "evidence_reasons" in data[0]
+    assert "missing_context" in data[0]
+    assert "recommended_next_steps" in data[0]
+
+
+def test_alignment_pack_json(tmp_path: Path) -> None:
+    out = tmp_path / "packs.jsonl"
+    result = runner.invoke(
+        app,
+        [
+            "alignment-pack",
+            str(FIXTURE_SIMD),
+            "--format",
+            "jsonl",
+            "-o",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0
+    assert out.exists()
+    row = json.loads(out.read_text(encoding="utf-8").strip())
+    assert row["alignment_label"] == "alignment_plausible_not_proven"
+    assert row["pack_id"]
+    assert row["source_record_id"]
+    assert row["raw_record_hash"]
+
+
+def test_alignment_pack_unknown_label() -> None:
+    result = runner.invoke(
+        app,
+        ["alignment-pack", str(FIXTURE_SIMD), "--label", "not_a_label"],
+    )
+    assert result.exit_code == 2
+
+
+def test_alignment_pack_with_source_context(tmp_path: Path) -> None:
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    result = runner.invoke(
+        app,
+        [
+            "alignment-pack",
+            str(FIXTURE_SIMD),
+            "--include-source",
+            "--source-root",
+            str(fixtures),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data[0]["source_snippet"] is not None
+    assert "source_snippet" not in data[0]["missing_context"]
 
 
 def test_dataset_writes_jsonl(tmp_path: Path) -> None:
@@ -143,6 +198,31 @@ def test_dataset_writes_jsonl(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert out.is_file()
     assert '"messages"' in out.read_text(encoding="utf-8")
+
+
+def test_dataset_alignment_focus_writes_labels(tmp_path: Path) -> None:
+    out = tmp_path / "alignment.jsonl"
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            str(FIXTURE_SIMD),
+            "-o",
+            str(out),
+            "--focus",
+            "alignment",
+            "--format",
+            "explncc-record",
+            "--template",
+            "guided",
+        ],
+    )
+    assert result.exit_code == 0
+    row = json.loads(out.read_text(encoding="utf-8").strip())
+    assert row["alignment_label"] == "alignment_plausible_not_proven"
+    assert "teacher_response" in row
+    assert "expected_behavior" in row
+    assert row["evidence"]["pass_name"] == "loop-vectorize"
 
 
 def test_evidence_json_stdout() -> None:

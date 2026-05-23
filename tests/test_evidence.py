@@ -12,10 +12,12 @@ from explncc.evidence import (
     build_evidence_packs,
 )
 from explncc.evidence_output import render_evidence_packs
+from explncc.context_snippets import ContextSnippetRequest
 from explncc.normalizer import load_records_from_path
 
 FIXTURE_SIMD = Path(__file__).resolve().parent / "fixtures" / "simd_vectorized.opt.yaml"
 FIXTURE_INLINE = Path(__file__).resolve().parent / "fixtures" / "inline_miss_no_definition.opt.yaml"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_render_unknown_format_raises() -> None:
@@ -150,3 +152,21 @@ Args:
     assert pack.has_target is True
     assert "target_triple" not in pack.missing_context
     assert pack.optimization_log_path == str(yaml_path.resolve())
+
+
+def test_evidence_pack_with_source_and_ir() -> None:
+    records = load_records_from_path(FIXTURE_SIMD)
+    context = ContextSnippetRequest(
+        include_source=True,
+        source_root=FIXTURES,
+        include_ir=True,
+        ir_file=FIXTURES / "t.ll",
+    )
+    packs = build_evidence_packs(records, context=context)
+    pack = packs[0]
+    assert pack.has_source is True
+    assert pack.has_ir is True
+    assert pack.source_snippet is not None
+    assert pack.ir_snippet is not None
+    assert "source_snippet" not in pack.missing_context
+    assert "ir_snippet" not in pack.missing_context

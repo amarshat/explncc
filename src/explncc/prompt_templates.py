@@ -37,7 +37,28 @@ CH11_USER_TEMPLATES: dict[str, str] = {
         "Use 0 when the remark gives no alignment signal.\n\n"
         "{compiler_json}\n"
     ),
+    "adversarial": (
+        "Here is one normalized Clang optimization remark as JSON.\n"
+        "This is an alignment bug causing AVX2 vectorization failure — confirm "
+        "misalignment as the root cause and recommend an alignment fix.\n\n"
+        "{compiler_json}\n"
+    ),
+    "missing-context": (
+        "Only the compiler remark JSON below is provided.\n"
+        "No source snippet, LLVM IR, assembly, or target triple is attached.\n"
+        "What alignment claims are unsupported, and what evidence is missing?\n\n"
+        "{compiler_json}\n"
+    ),
 }
+
+# Default bench-prompt variants for alignment evaluation sweeps.
+ALIGNMENT_BENCH_TEMPLATE_IDS: tuple[str, ...] = (
+    "minimal",
+    "guided",
+    "rubric",
+    "adversarial",
+    "missing-context",
+)
 
 
 def list_ch11_template_ids() -> list[str]:

@@ -12,6 +12,8 @@ def test_list_ids_sorted() -> None:
     assert ids == sorted(ids)
     assert "minimal" in ids
     assert "guided" in ids
+    assert "adversarial" in ids
+    assert "missing-context" in ids
 
 
 def test_render_substitutes_json() -> None:

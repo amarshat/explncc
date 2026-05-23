@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from explncc.context_snippets import ContextSnippetRequest, gather_context_snippets
 from explncc.models import OptimizationRecord
 
 
@@ -182,10 +183,13 @@ def build_evidence_pack(
     related_candidates: Sequence[OptimizationRecord] | None = None,
     ordinal: int = 0,
     max_related: int = 20,
+    source_snippet: str | None = None,
+    ir_snippet: str | None = None,
 ) -> EvidencePack:
     """Build one evidence pack from a normalized remark.
 
-    Does not read the filesystem for source or IR (those are milestone 3).
+    Does not read the filesystem for source or IR unless snippets are supplied by the
+    caller or via :func:`build_evidence_packs` with a :class:`ContextSnippetRequest`.
     Unknown fields stay null; :attr:`EvidencePack.missing_context` lists gaps explicitly.
     """
 
@@ -214,10 +218,10 @@ def build_evidence_pack(
         target_triple=triple,
         cpu=cpu,
         march=march,
-        source_snippet=None,
-        ir_snippet=None,
-        has_source=False,
-        has_ir=False,
+        source_snippet=source_snippet,
+        ir_snippet=ir_snippet,
+        has_source=source_snippet is not None,
+        has_ir=ir_snippet is not None,
         has_cost=bool(scalar_cost or vector_cost or record.threshold),
         has_target=bool(triple or cpu or march),
         missing_context=[],
@@ -230,11 +234,21 @@ def build_evidence_packs(
     records: Sequence[OptimizationRecord],
     *,
     max_related: int = 20,
+    context: ContextSnippetRequest | None = None,
 ) -> list[EvidencePack]:
     """Build one pack per record, with related-remark selection scoped to the full batch."""
 
     rec_list = list(records)
-    return [
-        build_evidence_pack(rec, related_candidates=rec_list, ordinal=i, max_related=max_related)
-        for i, rec in enumerate(rec_list)
-    ]
+    packs: list[EvidencePack] = []
+    for i, rec in enumerate(rec_list):
+        snippets = gather_context_snippets(rec, context)
+        pack = build_evidence_pack(
+            rec,
+            related_candidates=rec_list,
+            ordinal=i,
+            max_related=max_related,
+            source_snippet=snippets.source_snippet,
+            ir_snippet=snippets.ir_snippet,
+        )
+        packs.append(pack)
+    return packs
