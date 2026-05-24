@@ -191,6 +191,30 @@ python -m explncc doctor
 
 Copy-ready workflows: [examples/ci/](examples/ci/) (`explncc-report.yml`, `explncc-gated.yml`, `explncc-diff-pr.yml`). Full guide: [docs/chapter-12-ci.md](docs/chapter-12-ci.md). Short checklist: [docs/chapter-12-notes.md](docs/chapter-12-notes.md).
 
+### Chapter 13 (compiler-semantic infrastructure)
+
+**Only explanation backends are nondeterministic.** Everything else — parse, normalize, identity hashes, evidence packs, reports, digests — is reproducible and CI-safe.
+
+```bash
+# Pipeline visibility (teaching / debugging)
+python -m explncc trace build/examples/vectorize_success/ \
+  --format markdown --include-sample-record --include-evidence -o build/chapter13/trace.md
+
+# Cache keys over compiler evidence (not binaries)
+python -m explncc digest build/examples/ --include-evidence
+
+# Masked backend config (safe for CI logs)
+python -m explncc doctor --format markdown
+
+# Standalone HTML report with embedded CSS
+python -m explncc report build/app.opt.yaml --format html --embed-json -o report.html
+
+# Structured explanation result (rule / auto with fallback)
+python -m explncc explain build/app.opt.yaml --backend auto
+```
+
+Full guide: [docs/architecture.md](docs/architecture.md). Examples: [examples/chapter13_architecture/](examples/chapter13_architecture/). Demo: `make chapter13-demo`.
+
 ### Chapter 14 (diagrams + merged explanations)
 
 `explncc viz` emits **Mermaid** diagrams, **HTML** with Mermaid.js, or **JSON** for your own graph UI — all from the same normalized remarks as the rest of the tool (not from LLVM IR bitcode).
@@ -213,15 +237,21 @@ Rich tables list `kind`, `pass`, `remark`, `function`, location, and a truncated
 |--------|------|
 | `explncc/parser.py` | YAML stream loader with `!Missed` / `!Passed` / `!Analysis` |
 | `explncc/normalizer.py` | Raw document → `OptimizationRecord` |
-| `explncc/models.py` | Pydantic schema |
+| `explncc/models.py` | Pydantic schema + stable record identity fields |
+| `explncc/record_identity.py` | `record_id`, `record_hash`, `raw_hash`, semantic/source keys |
 | `explncc/summary.py` / `stats.py` | Filtering and aggregates |
 | `explncc/diffing.py` | Build-vs-build missed deltas and counters |
 | `explncc/report_diff.py` | Semantic optimization diff for CI (`report-diff`) |
 | `explncc/exporters.py` | `json`, `jsonl`, `csv` |
 | `explncc/checks.py` | Deterministic CI policy thresholds |
-| `explncc/explain/` | Rule text + optional HTTP backends |
+| `explncc/explain/` | Rule text + optional HTTP backends + `ExplanationResult` |
+| `explncc/prompt_registry.py` | Versioned prompt templates and `prompt_hash` |
 | `explncc/context_snippets.py` | Source / IR / assembly snippet extraction + asm signals |
-| `explncc/evidence.py` | Chapter 10 evidence packs from normalized remarks |
+| `explncc/evidence.py` | Evidence packs (model-facing unit, `evidence_hash`) |
+| `explncc/trace.py` | Pipeline trace for architecture visibility |
+| `explncc/toolchains/` | Clang `.opt.yaml` adapter (extensible boundary) |
+| `explncc/records_loader.py` | Load records via toolchain adapter |
+| `explncc/html_report.py` | Standalone HTML reports with embedded CSS |
 | `explncc/alignment.py` | Heuristic SIMD / alignment-related remark slice + labels |
 | `explncc/alignment_pack.py` | Chapter 11 alignment evidence packs |
 | `explncc/prompt_templates.py` | Named Chapter 11 user prompts (`minimal`, `guided`, `rubric`) |
@@ -267,7 +297,8 @@ Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run e
 | 10 — LST, evidence packs, context | [chapter-10-notes.md](docs/chapter-10-notes.md) |
 | 11 — alignment pipeline, context, datasets | [chapter-11-alignment.md](docs/chapter-11-alignment.md), [chapter-11-notes.md](docs/chapter-11-notes.md) |
 | 12 — CI reports, semantic diff, gates | [chapter-12-ci.md](docs/chapter-12-ci.md), [chapter-12-notes.md](docs/chapter-12-notes.md) |
-| 13–14 — architecture, viz | [chapter-13-notes.md](docs/chapter-13-notes.md), [chapter-14-notes.md](docs/chapter-14-notes.md) |
+| 13 — architecture, trace, digest | [architecture.md](docs/architecture.md), [chapter-13-notes.md](docs/chapter-13-notes.md) |
+| 14 — viz | [chapter-14-notes.md](docs/chapter-14-notes.md) |
 
 ## Why not just read `.opt.yaml` manually?
 
@@ -311,6 +342,7 @@ make check
 make demo          # needs `make examples` first
 make chapter11-demo PYTHON="$(pwd)/.venv/bin/python3"   # alignment + bench-prompts sample
 make chapter12-demo PYTHON="$(pwd)/.venv/bin/python3"     # CI-style github report (fixture)
+make chapter13-demo PYTHON="$(pwd)/.venv/bin/python3"     # trace, digest, doctor, HTML
 ```
 
 ### Testing Chapter 11 features

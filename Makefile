@@ -8,7 +8,7 @@ PYTHON ?= python3
 .PHONY: examples examples-clean build-all-opt
 .PHONY: build-inline-miss build-inline-costly build-vectorize-fail build-vectorize-success
 .PHONY: build-unroll-fixed build-unroll-unknown
-.PHONY: summarize-all explain-all diff-demo demo chapter11-demo chapter12-demo chapter14-demo
+.PHONY: summarize-all explain-all diff-demo demo chapter11-demo chapter12-demo chapter13-demo chapter14-demo
 .PHONY: chapter11 chapter11-examples chapter11-alignment chapter11-packs chapter11-dataset
 .PHONY: chapter11-bench-prompts chapter11-eval-fixture chapter11-clean
 
@@ -29,7 +29,7 @@ help:
 	@echo "  make examples-clean"
 	@echo ""
 	@echo "explncc demos (after install-dev + examples):"
-	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo | chapter12-demo | chapter14-demo"
+	@echo "  make summarize-all | explain-all | diff-demo | demo | chapter11-demo | chapter12-demo | chapter13-demo | chapter14-demo"
 	@echo ""
 	@echo "Chapter 11 alignment pipeline (fixture-based; no Clang required):"
 	@echo "  make chapter11 | chapter11-examples | chapter11-alignment | chapter11-packs"
@@ -149,6 +149,18 @@ chapter12-demo:
 	$(EXPLNCC) report tests/fixtures/inline_miss_no_definition.opt.yaml \
 		--format github --no-explain --top-missed 5 --title "CI sample report"
 
+CH13_BUILD := build/chapter13
+
+chapter13-demo:
+	mkdir -p $(CH13_BUILD)
+	$(EXPLNCC) trace tests/fixtures/simd_vectorized.opt.yaml --format markdown \
+		--include-sample-record --include-evidence -o $(CH13_BUILD)/trace.md
+	$(EXPLNCC) digest tests/fixtures/ --include-evidence | head -n 20
+	$(EXPLNCC) doctor --format markdown | head -n 15
+	$(EXPLNCC) report tests/fixtures/simd_vectorized.opt.yaml --format html --embed-json \
+		-o $(CH13_BUILD)/report.html
+	@echo "chapter 13 artifacts under $(CH13_BUILD)/"
+
 chapter14-demo: examples
 	$(EXPLNCC) viz $(EX_BUILD) --style pass-summary --format mermaid --top 10 | head -n 22
 
@@ -224,7 +236,14 @@ DOCS := \
 	docs/chapter-11-notes.md \
 	docs/chapter-11-alignment.md \
 	docs/chapter-12-notes.md \
+	docs/chapter-12-ci.md \
 	docs/chapter-13-notes.md \
+	docs/architecture.md \
+	docs/extending-explncc.md \
+	docs/backends.md \
+	docs/report-formats.md \
+	docs/caching-and-digest.md \
+	docs/toolchain-notes.md \
 	docs/chapter-14-notes.md
 
 docs-check:
