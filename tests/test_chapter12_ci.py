@@ -214,6 +214,26 @@ def test_report_diff_github_output() -> None:
     assert "Semantic changes" in text
 
 
+def test_report_diff_fail_on_regression() -> None:
+    before = [OptimizationRecord(kind="passed", pass_name="loop-vectorize", remark_name="ok", file="a.cpp", line=1)]
+    after = [OptimizationRecord(kind="missed", pass_name="loop-vectorize", remark_name="fail", file="a.cpp", line=1)]
+    diff = build_report_diff(before, after)
+    assert any(c.classification == "regression" for c in diff.changes)
+
+
+def test_report_diff_cli_fail_on_regression() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "report-diff",
+            str(FIXTURE),
+            str(FIXTURE),
+            "--fail-on-regression",
+        ],
+    )
+    assert result.exit_code == 0
+
+
 def test_report_diff_cli_smoke(tmp_path: Path) -> None:
     out = tmp_path / "diff.md"
     result = runner.invoke(

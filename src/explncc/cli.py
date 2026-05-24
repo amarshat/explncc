@@ -741,6 +741,13 @@ def report_cmd(
         bool,
         typer.Option("--explain-only-on-failure", help="Explain only when policy fails."),
     ] = False,
+    explain_only_on_regression: Annotated[
+        bool,
+        typer.Option(
+            "--explain-only-on-regression",
+            help="With report-diff workflows: skip explanation unless regressions exist (no-op on report alone).",
+        ),
+    ] = False,
     strict_explain: Annotated[
         bool,
         typer.Option("--strict-explain", help="Fail report if explanation backend errors."),
@@ -946,6 +953,17 @@ def report_diff_cmd(
         bool,
         typer.Option("--include-improvements/--no-include-improvements", help="Include improvements."),
     ] = True,
+    fail_on_regression: Annotated[
+        bool,
+        typer.Option("--fail-on-regression", help="Exit 1 when any regression-classified change exists."),
+    ] = False,
+    fail_on_vectorization_loss: Annotated[
+        bool,
+        typer.Option(
+            "--fail-on-vectorization-loss",
+            help="Exit 1 when vectorization is lost or new missed vectorize remarks appear.",
+        ),
+    ] = False,
     manifest_out: Annotated[
         Path | None,
         typer.Option("--write-manifest", help="Write CI artifact manifest JSON."),
@@ -984,6 +1002,18 @@ def report_diff_cmd(
         manifest.manifest_path = str(manifest_out)
         write_manifest(str(manifest_out), manifest)
         typer.echo(f"wrote manifest to {manifest_out}")
+
+    regressions = [c for c in diff_result.changes if c.classification == "regression"]
+    vector_loss = [
+        c
+        for c in diff_result.changes
+        if c.change_type in {"vectorization_lost", "new_missed"}
+        and ("vector" in c.description.lower() or "vectorize" in c.description.lower())
+    ]
+    if fail_on_regression and regressions:
+        raise typer.Exit(1)
+    if fail_on_vectorization_loss and vector_loss:
+        raise typer.Exit(1)
 
 
 @app.command("ci-manifest")
