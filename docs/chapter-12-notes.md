@@ -37,7 +37,10 @@ python -m explncc report build/app.opt.yaml -o gate.md --fail-on-check --max-mis
 
 ## Repository samples
 
+- [docs/chapter-12-ci.md](../../docs/chapter-12-ci.md) — full CI feedback loop guide (trust model, gates, semantic diff)
 - `examples/ci/github-actions/explncc-report.yml` — Actions workflow template
+- `examples/ci/github-actions/explncc-gated.yml` — deterministic policy gate
+- `examples/ci/github-actions/explncc-diff-pr.yml` — semantic `report-diff` for PRs
 - `examples/ci/jenkins/Jenkinsfile.snippet` — Declarative stage fragment
 - `examples/ci/cron/` — `example.cron` + `run_nightly_report.sh`
 
