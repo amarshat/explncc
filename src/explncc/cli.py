@@ -35,15 +35,16 @@ from explncc.ci_report import parse_report_format, render_report
 from explncc.report_diff import build_report_diff, render_report_diff
 from explncc.report_helpers import policy_thresholds_active, report_source_info, resolve_explanation
 from explncc.report_types import ReportBuildOptions, ReportMetadata
-from explncc.config import doctor_payload, load_config
-from explncc.diffing import DiffReport, diff_records
+from explncc.config import load_config, render_doctor
 from explncc.digest import build_digest, format_digest_json
+from explncc.diffing import DiffReport, diff_records
+from explncc.records_loader import load_records
+from explncc.trace import build_trace, render_trace
 from explncc.evidence import build_evidence_packs
 from explncc.evidence_output import render_evidence_packs
 from explncc.explain.backends import run_explanation
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
 from explncc.models import OptimizationRecord
-from explncc.normalizer import load_records_from_path
 from explncc.render import print_table
 from explncc.stats import aggregate
 from explncc.summary import apply_filters, rows_for_table, truncate_message
@@ -118,18 +119,91 @@ def version_cmd() -> None:
 
 
 @app.command("doctor")
-def doctor_cmd() -> None:
+def doctor_cmd(
+    report_format: Annotated[
+        str,
+        typer.Option("--format", help="text | json | markdown"),
+    ] = "json",
+) -> None:
     """Print masked backend-related configuration (safe for CI logs)."""
-    typer.echo(json.dumps(doctor_payload(), indent=2, ensure_ascii=False))
+    fmt = report_format.strip().lower()
+    if fmt == "text":
+        fmt = "json"
+    typer.echo(render_doctor(fmt))
 
 
 @app.command("digest")
 def digest_cmd(
     target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    include_evidence: Annotated[
+        bool,
+        typer.Option("--include-evidence", help="Include evidence pack hash aggregate."),
+    ] = False,
+    include_prompts: Annotated[
+        bool,
+        typer.Option("--include-prompts", help="Include prompt hash for --template."),
+    ] = False,
+    template: Annotated[
+        str | None,
+        typer.Option("--template", help="Prompt template id when using --include-prompts."),
+    ] = None,
 ) -> None:
-    """Emit SHA-256 digests per ``.opt.yaml`` file plus an aggregate cache key."""
-    data = build_digest(target)
+    """Emit SHA-256 digests per ``.opt.yaml`` file plus cache keys."""
+    if include_prompts and not template:
+        typer.secho("--include-prompts requires --template", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    data = build_digest(
+        target,
+        include_evidence=include_evidence,
+        include_prompts=include_prompts,
+        template=template,
+    )
     typer.echo(format_digest_json(data))
+
+
+@app.command("trace")
+def trace_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    report_format: Annotated[
+        str,
+        typer.Option("--format", help="text | json | markdown"),
+    ] = "text",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write trace report to this file."),
+    ] = None,
+    include_sample_record: Annotated[
+        bool,
+        typer.Option("--include-sample-record", help="Include one normalized record in output."),
+    ] = False,
+    include_sample_evidence: Annotated[
+        bool,
+        typer.Option("--include-sample-evidence", help="Include one evidence pack sample."),
+    ] = False,
+    include_evidence: Annotated[
+        bool,
+        typer.Option("--include-evidence", help="Count evidence packs in trace."),
+    ] = False,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter (default: clang)."),
+    ] = "clang",
+) -> None:
+    """Show how data flows through explncc layers for teaching and debugging."""
+    _ = toolchain  # reserved; trace uses path discovery consistent with clang adapter
+    data = build_trace(
+        target,
+        include_evidence=include_evidence or include_sample_evidence,
+        include_sample_record=include_sample_record,
+        include_sample_evidence=include_sample_evidence,
+    )
+    fmt = report_format.strip().lower()
+    text = render_trace(fmt, data)
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote trace to {output}")
+    else:
+        typer.echo(text)
 
 
 @app.command("viz")
@@ -245,9 +319,9 @@ def viz_cmd(
         typer.echo(text.rstrip("\n"))
 
 
-def _load_records_or_exit(path: Path) -> list[OptimizationRecord]:
+def _load_records_or_exit(path: Path, *, toolchain: str = "clang") -> list[OptimizationRecord]:
     try:
-        return load_records_from_path(path)
+        return load_records(path, toolchain=toolchain)
     except (FileNotFoundError, ValueError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
@@ -819,6 +893,10 @@ def report_cmd(
         Path | None,
         typer.Option("--write-manifest", help="Write CI artifact manifest JSON."),
     ] = None,
+    embed_json: Annotated[
+        bool,
+        typer.Option("--embed-json", help="Embed JSON metadata in HTML reports."),
+    ] = False,
 ) -> None:
     """Emit Markdown, JSON, HTML, or GitHub PR-style reports for CI and review bots."""
 
@@ -897,6 +975,7 @@ def report_cmd(
         options=options,
         policy=policy,
         explanation=explanation,
+        embed_json=embed_json,
     )
 
     if output is not None:
