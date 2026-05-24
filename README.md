@@ -17,21 +17,48 @@ Clang can emit a machine-oriented record of optimization events tied to source l
 - normalizes inconsistent `Args` into `message`, `cost`, `threshold`, and related fields **without inventing data**,
 - supports **directory** inputs (all `*.opt.yaml` recursively).
 
-## Layered semantic context (LST-style)
+## Lossless Semantic Tree (LST)
 
-The book treats compiler output as **evidence**, not prose to paste into a model. explncc builds a **layered stack** you can attach deterministically before any optional LLM step:
+Chapter 10 introduces the **Lossless Semantic Tree (LST)** — a way to preserve and expose the compiler’s optimization reasoning without flattening it into prose or asking a model to guess from source alone.
 
-| Layer | What it is | explncc support |
-|-------|------------|-----------------|
-| **Compiler record** | Authoritative `.opt.yaml` remark (`!Missed` / `!Passed` / `!Analysis`) | `summary`, `stats`, `export`, `check`, `report` |
-| **Normalized record** | Stable `OptimizationRecord` (pass, kind, message, costs, DebugLoc) | All commands |
-| **Evidence pack** | One remark + related refs + `missing_context` flags | `explncc evidence` |
-| **Source snippet** | Bounded window around DebugLoc | `--include-source --source-root PATH` |
-| **LLVM IR slice** | Bounded `define` region from a `.ll` file you provide | `--include-ir --ir-file FILE.ll` |
-| **Assembly slice** | Function label region + conservative mnemonic signals | `--include-asm --asm-file FILE.s` |
-| **Semantic CI history** | Sequence of `.opt.yaml` across commits (compiler *decisions*, not source text) | `explncc report-diff` |
+| Word | Meaning in explncc |
+|------|-------------------|
+| **Lossless** | No invented facts. Raw `.opt.yaml` stays authoritative; normalization keeps `args_raw`; evidence packs list gaps in `missing_context`. |
+| **Semantic** | The compiler already decided pass, kind, costs, vectorization, and DebugLoc — tooling surfaces *that* evidence, not LLM inference from source text. |
+| **Tree** | Structured evidence around one remark: primary node, `related_records[]` links to sibling remarks in the same function/log, optional context leaves (source, IR, asm). |
 
-**LST-style** here means: tie each optimization event to **low-level semantic context** (source lines, IR, asm) when you have it — without inventing facts the compiler did not record. Gaps stay explicit (`missing_context`, `has_source`, `has_ir`). Model backends consume **normalized records or packs**, never raw YAML streams.
+```text
+.opt.yaml remark (root evidence)
+  └── OptimizationRecord (normalized node)
+        └── EvidencePack (minimal semantic slice)
+              ├── primary remark fields
+              ├── related_records[]     ← linked remarks, same function/log
+              └── optional context leaves
+                    ├── source_snippet   (--include-source)
+                    ├── ir_snippet       (--include-ir)
+                    └── assembly_snippet (--include-asm)
+```
+
+**Chapter extensions:**
+
+- **Chapter 11** — alignment labels and `alignment-pack` add classification nodes on the same tree (conservative teachers, eval rubrics).
+- **Chapter 12** — `report` / `report-diff` treat one `.opt.yaml` as a snapshot and sequences across commits as **compiler-semantic history** (decision drift, not source diff).
+
+**Prompt pipeline (Chapter 10 thesis):**
+
+```text
+.opt.yaml → normalized record → evidence pack → prompt template → optional explain
+```
+
+Model backends consume **normalized records or packs**, never raw YAML streams. Context attachment (`--include-source`, `--include-ir`, `--include-asm`) adds leaves when you have external artifacts; absent layers stay explicit.
+
+| LST layer | explncc command |
+|-----------|-----------------|
+| Compiler record | `summary`, `stats`, `export`, `check`, `report` |
+| Normalized record | all commands |
+| Evidence pack | `explncc evidence` |
+| Context leaves | `--include-source`, `--include-ir`, `--include-asm` on `evidence`, `alignment-pack`, `dataset` |
+| Semantic CI history | `explncc report-diff` |
 
 **Trust model (Chapters 10–12):**
 
@@ -40,10 +67,7 @@ The book treats compiler output as **evidence**, not prose to paste into a model
 3. Deterministic policy gates decide pass/fail.
 4. Models optionally assist triage (clearly labeled sections in `report`).
 
-```text
-clang++ → .opt.yaml → normalize → evidence / alignment-pack (+ optional source/IR/asm)
-                              → report / report-diff → policy gate → optional explain
-```
+See [docs/chapter-10-notes.md](docs/chapter-10-notes.md) for the teaching order and evidence-pack workflow.
 
 ## Install
 
@@ -100,7 +124,7 @@ These commands are **deterministic**: they do not train or call a model unless y
 python -m explncc alignment build/examples/vectorize_success/ --limit 20
 python -m explncc alignment build/examples/ --json | head -c 600
 
-# Alignment evidence packs: compiler facts + labels + optional LST-style context
+# Alignment evidence packs: compiler facts + labels + optional LST context leaves
 python -m explncc alignment-pack examples/chapter11_alignment/ \
   --format jsonl -o /tmp/alignment-packs.jsonl
 
@@ -240,7 +264,7 @@ Use the bundled `examples/` to emit real `.opt.yaml` on your machine, then run e
 
 | Chapter | Doc |
 |---------|-----|
-| 10 — progressive CLI, evidence packs | [chapter-10-notes.md](docs/chapter-10-notes.md) |
+| 10 — LST, evidence packs, context | [chapter-10-notes.md](docs/chapter-10-notes.md) |
 | 11 — alignment pipeline, context, datasets | [chapter-11-alignment.md](docs/chapter-11-alignment.md), [chapter-11-notes.md](docs/chapter-11-notes.md) |
 | 12 — CI reports, semantic diff, gates | [chapter-12-ci.md](docs/chapter-12-ci.md), [chapter-12-notes.md](docs/chapter-12-notes.md) |
 | 13–14 — architecture, viz | [chapter-13-notes.md](docs/chapter-13-notes.md), [chapter-14-notes.md](docs/chapter-14-notes.md) |
@@ -254,8 +278,8 @@ You can — and you should, once — to see the raw stream. explncc exists so yo
 1. **Deterministic core first** — every command works without network access.
 2. **No invented fields** — missing data stays absent; `args_raw` preserves the source.
 3. **AI as augmentation** — rule text is always available; HTTP backends only enrich labeled sections.
-4. **Layered context** — attach source/IR/asm when available; never fabricate missing layers.
-5. **Semantic history** — one `.opt.yaml` is evidence; sequences across builds support `report-diff` drift analysis.
+4. **LST context leaves** — attach source/IR/asm when available; never fabricate missing layers.
+5. **Semantic history** — one `.opt.yaml` is an LST snapshot; sequences across builds support `report-diff` drift analysis.
 
 ## Optional model backends
 

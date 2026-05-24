@@ -2,6 +2,8 @@
 
 **Primary documentation:** [chapter-11-alignment.md](chapter-11-alignment.md) — full alignment evidence pipeline guide (labels, packs, datasets, bench-prompts, evaluator, Make targets, limitations).
 
+**LST background:** [chapter-10-notes.md](chapter-10-notes.md) — Lossless Semantic Tree and evidence packs.
+
 This file is a compact companion for authors already familiar with explncc Chapter 11 work.
 
 ## Quick demo

@@ -7,7 +7,20 @@
 3. **Deterministic policy gates decide pass/fail** — counters and thresholds only; never model output.
 4. **Models optionally help humans triage** — clearly labeled sections, offline-friendly defaults.
 
-A single `.opt.yaml` is compiler evidence. A sequence of `.opt.yaml` files across commits is **compiler-semantic history** (complementing source diffs).
+A single `.opt.yaml` is compiler evidence — one **LST root snapshot**. A sequence of `.opt.yaml` files across commits is **compiler-semantic history**: how optimizer *decisions* drifted, complementing source diffs.
+
+## LST at CI scale
+
+Chapter 12 applies the LST trust model to pipelines:
+
+| LST concept | Chapter 12 command |
+|-------------|-------------------|
+| Single snapshot (normalized remarks + summary) | `explncc report --format json` |
+| Policy on deterministic counters | `report --fail-on-check` |
+| Snapshot diff (regression / improvement) | `explncc report-diff` |
+| Optional interpretation leaf | `report --explain-backend` (labeled; never the gate) |
+
+`report` and `report-diff` operate on **normalized records**, not raw YAML sent to models. Explanation backends, when enabled, should consume the same reduced evidence philosophy as Chapter 10 packs.
 
 ## Basic CI flow
 

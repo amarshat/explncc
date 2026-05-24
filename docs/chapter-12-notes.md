@@ -2,6 +2,8 @@
 
 Chapter outline: *Adding an LLM Layer to Your Compiler CI* — GitHub Actions, Jenkins, cron, PR comments, and trustworthy automation.
 
+**LST framing:** One `.opt.yaml` is an LST root snapshot; `report-diff` compares snapshots across builds. See [chapter-10-notes.md](chapter-10-notes.md) and [chapter-12-ci.md](chapter-12-ci.md).
+
 ## What explncc adds for this chapter
 
 | Heading | Reader learns to DO | explncc support |

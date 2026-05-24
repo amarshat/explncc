@@ -20,7 +20,25 @@ source
   → eval-alignment
 ```
 
-This extends the Chapter 10 evidence-pack workflow: source fidelity + compiler semantic evidence + optional low-level artifacts (LST-style semantic context).
+This extends the Chapter 10 **Lossless Semantic Tree (LST)** workflow: the same evidence-pack tree (compiler remark → normalized record → pack → optional context leaves), plus alignment classification nodes and evaluation artifacts.
+
+See [chapter-10-notes.md](chapter-10-notes.md) for the LST definition and teaching order.
+
+## LST in Chapter 11
+
+Chapter 11 does not replace the LST — it **annotates** it:
+
+```text
+.opt.yaml remark
+  └── OptimizationRecord
+        └── AlignmentEvidencePack
+              ├── compiler fields (pass, kind, message, costs, …)
+              ├── alignment_label + confidence + evidence_reasons
+              ├── related_records[]
+              └── optional context leaves (source / IR / asm)
+```
+
+Alignment labels are **heuristic**, not ground truth. Teachers and `eval-alignment` enforce conservative language (“plausible, not proven”) unless evidence is explicit.
 
 ## Commands overview
 
