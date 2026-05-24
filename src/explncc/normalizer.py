@@ -113,7 +113,9 @@ def normalize_document(
     threshold = pairs.get("Threshold") or pairs.get("Treshold") or None
     hotness = _scalar_to_str(doc.get("Hotness"))
 
-    return OptimizationRecord(
+    from explncc.record_identity import apply_record_identity
+
+    record = OptimizationRecord(
         kind=kind_s,
         pass_name=pass_name,
         remark_name=remark_name,
@@ -134,6 +136,7 @@ def normalize_document(
         source_path=str(source_path) if source_path is not None else None,
         tool_version_metadata=tool_version_metadata,
     )
+    return apply_record_identity(record, raw_doc=doc)
 
 
 def split_tool_metadata(

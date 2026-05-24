@@ -35,6 +35,26 @@ class OptimizationRecord(BaseModel):
         default=None,
         description="Optional toolchain metadata when present as a leading YAML document.",
     )
+    record_id: str | None = Field(
+        default=None,
+        description="Human-readable stable ID (pass/kind/remark/function/location).",
+    )
+    record_hash: str | None = Field(
+        default=None,
+        description="SHA-256 of canonical normalized record fields.",
+    )
+    raw_hash: str | None = Field(
+        default=None,
+        description="SHA-256 of the raw YAML document dict when available.",
+    )
+    source_key: str | None = Field(
+        default=None,
+        description="file:line:column:function location key.",
+    )
+    semantic_key: str | None = Field(
+        default=None,
+        description="pass:kind:remark:function:normalized-message key.",
+    )
 
     def fingerprint(self) -> tuple[Any, ...]:
         """Cheap tuple for diffing and deduplication."""
