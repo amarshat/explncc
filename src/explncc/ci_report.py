@@ -377,20 +377,29 @@ def build_html_report(
     options: ReportBuildOptions,
     policy: PolicyResult | None,
     explanation: ExplanationInfo,
+    embed_json: bool = False,
+    json_payload: dict[str, Any] | None = None,
 ) -> str:
-    md = build_markdown_report(
+    from explncc.html_report import build_html_report_document
+
+    if embed_json and json_payload is None:
+        json_payload = build_json_payload(
+            records,
+            source=source,
+            metadata=metadata,
+            options=options,
+            policy=policy,
+            explanation=explanation,
+        )
+    return build_html_report_document(
         records,
         source=source,
         metadata=metadata,
         options=options,
         policy=policy,
         explanation=explanation,
-    )
-    esc = html.escape
-    body = esc(md).replace("\n", "<br/>\n")
-    return (
-        "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'/>"
-        f"<title>{esc(options.title)}</title></head><body><pre>{body}</pre></body></html>"
+        embed_json=embed_json,
+        json_payload=json_payload,
     )
 
 
@@ -403,6 +412,7 @@ def render_report(
     options: ReportBuildOptions,
     policy: PolicyResult | None,
     explanation: ExplanationInfo,
+    embed_json: bool = False,
 ) -> str:
     if fmt == "json":
         payload = build_json_payload(
@@ -424,6 +434,16 @@ def render_report(
             explanation=explanation,
         )
     if fmt == "html":
+        payload = None
+        if embed_json:
+            payload = build_json_payload(
+                records,
+                source=source,
+                metadata=metadata,
+                options=options,
+                policy=policy,
+                explanation=explanation,
+            )
         return build_html_report(
             records,
             source=source,
@@ -431,6 +451,8 @@ def render_report(
             options=options,
             policy=policy,
             explanation=explanation,
+            embed_json=embed_json,
+            json_payload=payload,
         )
     return build_markdown_report(
         records,
