@@ -33,20 +33,31 @@ def test_report_markdown_to_stdout() -> None:
 def test_report_html_stdout() -> None:
     result = runner.invoke(
         app,
-        ["report", str(FIXTURE), "--format", "html", "--no-explain", "--top-missed", "3"],
+        ["report", str(FIXTURE), "--format", "html", "--top-missed", "3"],
     )
     assert result.exit_code == 0
     assert "<!DOCTYPE html>" in result.stdout
-    assert "Top missed" in result.stdout
+    assert "Top Missed Optimizations" in result.stdout
 
 
 def test_report_json_stdout() -> None:
     result = runner.invoke(
         app,
-        ["report", str(FIXTURE), "--format", "json", "--no-explain"],
+        ["report", str(FIXTURE), "--format", "json"],
     )
     assert result.exit_code == 0
-    assert '"stats"' in result.stdout
+    assert '"summary"' in result.stdout
+    assert '"schema_version"' in result.stdout
+
+
+def test_report_github_stdout() -> None:
+    result = runner.invoke(
+        app,
+        ["report", str(FIXTURE), "--format", "github", "--top-missed", "5"],
+    )
+    assert result.exit_code == 0
+    assert "<details>" in result.stdout
+    assert "Policy:" in result.stdout
 
 
 def test_report_fail_on_check_exits_one(tmp_path: Path) -> None:
