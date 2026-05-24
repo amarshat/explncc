@@ -29,8 +29,12 @@ import typer
 from rich.console import Console
 
 from explncc import __version__
-from explncc.checks import CheckResult, run_checks
+from explncc.checks import CheckResult, build_policy_result, run_checks
+from explncc.ci_manifest import CiManifest, write_manifest
 from explncc.ci_report import parse_report_format, render_report
+from explncc.report_diff import build_report_diff, render_report_diff
+from explncc.report_helpers import policy_thresholds_active, report_source_info, resolve_explanation
+from explncc.report_types import ReportBuildOptions, ReportMetadata
 from explncc.config import doctor_payload, load_config
 from explncc.diffing import DiffReport, diff_records
 from explncc.digest import build_digest, format_digest_json
@@ -651,14 +655,46 @@ def check_cmd(
 def _check_options_active(
     max_missed_loop_vectorize: int | None,
     max_missed_inline: int | None,
+    max_missed_vectorize: int | None = None,
+    max_missed_unroll: int | None = None,
+    max_total_missed: int | None = None,
+    max_analysis: int | None = None,
+    max_pass_remarks: int | None = None,
+    pass_name_exact: str | None = None,
+) -> bool:
+    return policy_thresholds_active(
+        max_missed_loop_vectorize=max_missed_loop_vectorize,
+        max_missed_inline=max_missed_inline,
+        max_missed_vectorize=max_missed_vectorize,
+        max_missed_unroll=max_missed_unroll,
+        max_total_missed=max_total_missed,
+        max_analysis=max_analysis,
+        max_pass_remarks=max_pass_remarks,
+        pass_name_exact=pass_name_exact,
+    )
+
+
+def _policy_kwargs(
+    *,
+    max_missed_loop_vectorize: int | None,
+    max_missed_inline: int | None,
+    max_missed_vectorize: int | None,
+    max_missed_unroll: int | None,
+    max_total_missed: int | None,
+    max_analysis: int | None,
     max_pass_remarks: int | None,
     pass_name_exact: str | None,
-) -> bool:
-    return (
-        max_missed_loop_vectorize is not None
-        or max_missed_inline is not None
-        or (max_pass_remarks is not None and pass_name_exact is not None)
-    )
+) -> dict[str, int | str | None]:
+    return {
+        "max_missed_loop_vectorize": max_missed_loop_vectorize,
+        "max_missed_inline": max_missed_inline,
+        "max_missed_vectorize": max_missed_vectorize,
+        "max_missed_unroll": max_missed_unroll,
+        "max_total_missed": max_total_missed,
+        "max_analysis": max_analysis,
+        "max_pass_remarks": max_pass_remarks,
+        "pass_name_exact": pass_name_exact,
+    }
 
 
 @app.command("report")
@@ -675,12 +711,21 @@ def report_cmd(
     title: Annotated[
         str,
         typer.Option("--title", help="Report heading (Markdown / GitHub title)."),
-    ] = "Optimization remarks report",
+    ] = "Compiler Optimization Report",
     top_missed: Annotated[int, typer.Option("--top-missed", help="Rows in the missed table.")] = 12,
+    top_analysis: Annotated[int, typer.Option("--top-analysis", help="Analysis rows in JSON report.")] = 8,
+    include_passed: Annotated[
+        bool,
+        typer.Option("--include-passed", help="Include top passed remarks in JSON/Markdown."),
+    ] = False,
+    max_message_length: Annotated[
+        int,
+        typer.Option("--max-message-length", help="Truncate compiler messages in Markdown."),
+    ] = 4000,
     no_explain: Annotated[
         bool,
-        typer.Option("--no-explain", help="Skip explanation block (faster CI)."),
-    ] = False,
+        typer.Option("--no-explain/--explain", help="Skip explanation (default for CI)."),
+    ] = True,
     explain_backend: Annotated[
         str | None,
         typer.Option(
@@ -692,10 +737,25 @@ def report_cmd(
         int,
         typer.Option("--explain-limit", help="Max remarks passed to explainer."),
     ] = 32,
+    explain_only_on_failure: Annotated[
+        bool,
+        typer.Option("--explain-only-on-failure", help="Explain only when policy fails."),
+    ] = False,
+    strict_explain: Annotated[
+        bool,
+        typer.Option("--strict-explain", help="Fail report if explanation backend errors."),
+    ] = False,
     ai_limit: Annotated[
         int,
         typer.Option("--ai-limit", help="Max records serialized for model backends."),
     ] = 40,
+    github_collapsible: Annotated[
+        bool,
+        typer.Option(
+            "--github-collapsible/--no-github-collapsible",
+            help="Use collapsible sections in GitHub format.",
+        ),
+    ] = True,
     fail_on_check: Annotated[
         bool,
         typer.Option(
@@ -711,6 +771,22 @@ def report_cmd(
         int | None,
         typer.Option("--max-missed-inline", help="Include in report + optional gate."),
     ] = None,
+    max_missed_vectorize: Annotated[
+        int | None,
+        typer.Option("--max-missed-vectorize", help="Cap missed vectorization-related passes."),
+    ] = None,
+    max_missed_unroll: Annotated[
+        int | None,
+        typer.Option("--max-missed-unroll", help="Cap missed unroll remarks."),
+    ] = None,
+    max_total_missed: Annotated[
+        int | None,
+        typer.Option("--max-total-missed", help="Cap total missed remarks."),
+    ] = None,
+    max_analysis: Annotated[
+        int | None,
+        typer.Option("--max-analysis", help="Cap analysis remark count."),
+    ] = None,
     max_pass_remarks: Annotated[
         int | None,
         typer.Option("--max-pass-remarks", help="With --pass-name-exact."),
@@ -719,6 +795,23 @@ def report_cmd(
         str | None,
         typer.Option("--pass-name-exact", help="Exact pass field for remark cap."),
     ] = None,
+    git_sha: Annotated[str | None, typer.Option("--git-sha", help="Git commit SHA for metadata.")] = None,
+    branch: Annotated[str | None, typer.Option("--branch", help="Git branch for metadata.")] = None,
+    pr_number: Annotated[str | None, typer.Option("--pr-number", help="Pull request number.")] = None,
+    build_id: Annotated[str | None, typer.Option("--build-id", help="CI build identifier.")] = None,
+    ci_provider: Annotated[
+        str | None,
+        typer.Option("--ci-provider", help="CI provider name (github, jenkins, …)."),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", help="Repository slug for metadata.")] = None,
+    target_name: Annotated[
+        str | None,
+        typer.Option("--target-name", help="Build target label (overrides triple in metadata)."),
+    ] = None,
+    manifest_out: Annotated[
+        Path | None,
+        typer.Option("--write-manifest", help="Write CI artifact manifest JSON."),
+    ] = None,
 ) -> None:
     """Emit Markdown, JSON, HTML, or GitHub PR-style reports for CI and review bots."""
 
@@ -726,50 +819,62 @@ def report_cmd(
         typer.secho("--max-pass-remarks requires --pass-name-exact", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    if fail_on_check and not _check_options_active(
-        max_missed_loop_vectorize,
-        max_missed_inline,
-        max_pass_remarks,
-        pass_name_exact,
-    ):
+    policy_kw = _policy_kwargs(
+        max_missed_loop_vectorize=max_missed_loop_vectorize,
+        max_missed_inline=max_missed_inline,
+        max_missed_vectorize=max_missed_vectorize,
+        max_missed_unroll=max_missed_unroll,
+        max_total_missed=max_total_missed,
+        max_analysis=max_analysis,
+        max_pass_remarks=max_pass_remarks,
+        pass_name_exact=pass_name_exact,
+    )
+
+    if fail_on_check and not _check_options_active(**policy_kw):
         typer.secho(
-            "--fail-on-check requires at least one threshold: "
-            "--max-missed-inline, --max-missed-loop-vectorize, or "
-            "--max-pass-remarks with --pass-name-exact",
+            "--fail-on-check requires at least one policy threshold flag.",
             fg=typer.colors.RED,
             err=True,
         )
         raise typer.Exit(2)
 
     records = _load_records_or_exit(target)
+    source = report_source_info(target, records)
+    metadata = ReportMetadata(
+        git_sha=git_sha,
+        branch=branch,
+        pr_number=pr_number,
+        build_id=build_id,
+        ci_provider=ci_provider,
+        repo=repo,
+        target_name=target_name,
+    )
+    options = ReportBuildOptions(
+        title=title,
+        top_missed=top_missed,
+        top_analysis=top_analysis,
+        include_passed=include_passed,
+        message_max_chars=max_message_length,
+        github_collapsible=github_collapsible,
+        explain_backend=explain_backend,
+    )
 
-    check_result: CheckResult | None = None
-    if _check_options_active(
-        max_missed_loop_vectorize,
-        max_missed_inline,
-        max_pass_remarks,
-        pass_name_exact,
-    ):
-        check_result = run_checks(
-            records,
-            max_missed_loop_vectorize=max_missed_loop_vectorize,
-            max_missed_inline=max_missed_inline,
-            max_pass_remarks=max_pass_remarks,
-            pass_name_exact=pass_name_exact,
-        )
+    policy = build_policy_result(records, **policy_kw) if _check_options_active(**policy_kw) else None
 
-    explain_text: str | None = None
-    if not no_explain:
-        config = load_config()
-        mode = (explain_backend or config.default_backend).strip().lower()
-        if mode == "openai" and not config.openai_api_key:
-            typer.secho("openai backend requires OPENAI_API_KEY", fg=typer.colors.RED, err=True)
-            raise typer.Exit(2)
-        if mode == "claude" and not config.anthropic_api_key:
-            typer.secho("claude backend requires ANTHROPIC_API_KEY", fg=typer.colors.RED, err=True)
-            raise typer.Exit(2)
-        subset = records[:explain_limit] if explain_limit > 0 else records
-        explain_text = run_explanation(subset, backend=mode, config=config, ai_limit=ai_limit)
+    config = load_config()
+    explanation, explain_exit = resolve_explanation(
+        records,
+        enabled=not no_explain,
+        backend=explain_backend,
+        config=config,
+        explain_limit=explain_limit,
+        ai_limit=ai_limit,
+        only_on_failure=explain_only_on_failure,
+        policy=policy,
+        strict=strict_explain,
+    )
+    if explain_exit is not None:
+        raise typer.Exit(explain_exit)
 
     try:
         report_fmt = parse_report_format(report_format)
@@ -780,10 +885,11 @@ def report_cmd(
     text = render_report(
         report_fmt,
         records,
-        top_missed=top_missed,
-        check_result=check_result,
-        explain_text=explain_text,
-        title=title,
+        source=source,
+        metadata=metadata,
+        options=options,
+        policy=policy,
+        explanation=explanation,
     )
 
     if output is not None:
@@ -792,8 +898,126 @@ def report_cmd(
     else:
         typer.echo(text)
 
-    if fail_on_check and check_result is not None and not check_result.ok:
+    if manifest_out is not None:
+        from explncc.utils import collect_opt_yaml_paths
+
+        manifest = CiManifest(
+            git_sha=git_sha,
+            build_id=build_id,
+            ci_provider=ci_provider,
+            raw_opt_yaml=[str(p) for p in collect_opt_yaml_paths(target)],
+        )
+        if report_fmt == "markdown":
+            manifest.markdown_report = str(output) if output else None
+        elif report_fmt == "json":
+            manifest.json_report = str(output) if output else None
+        elif report_fmt == "github":
+            manifest.github_comment = str(output) if output else None
+        if policy is not None and output is not None:
+            manifest.policy_report = str(output)
+        manifest.manifest_path = str(manifest_out)
+        write_manifest(str(manifest_out), manifest)
+        typer.echo(f"wrote manifest to {manifest_out}")
+
+    if fail_on_check and policy is not None and not policy.ok:
         raise typer.Exit(1)
+
+
+@app.command("report-diff")
+def report_diff_cmd(
+    before: Annotated[Path, typer.Argument(help="Baseline .opt.yaml file or directory")],
+    after: Annotated[Path, typer.Argument(help="Current .opt.yaml file or directory")],
+    report_format: Annotated[
+        str,
+        typer.Option("--format", help="markdown | json | github."),
+    ] = "markdown",
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write diff report to this file."),
+    ] = None,
+    before_label: Annotated[str, typer.Option("--before-label", help="Label for baseline.")] = "before",
+    after_label: Annotated[str, typer.Option("--after-label", help="Label for current build.")] = "after",
+    top_changes: Annotated[int, typer.Option("--top-changes", help="Max changes in output.")] = 15,
+    only_regressions: Annotated[
+        bool,
+        typer.Option("--only-regressions", help="Show regression-classified changes only."),
+    ] = False,
+    include_improvements: Annotated[
+        bool,
+        typer.Option("--include-improvements/--no-include-improvements", help="Include improvements."),
+    ] = True,
+    manifest_out: Annotated[
+        Path | None,
+        typer.Option("--write-manifest", help="Write CI artifact manifest JSON."),
+    ] = None,
+) -> None:
+    """Semantic diff of compiler optimization behavior across two builds."""
+
+    if report_format.strip().lower() == "html":
+        typer.secho("report-diff supports markdown, json, and github formats.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    b_records = _load_records_or_exit(before)
+    a_records = _load_records_or_exit(after)
+    diff_result = build_report_diff(
+        b_records,
+        a_records,
+        before_label=before_label,
+        after_label=after_label,
+        only_regressions=only_regressions,
+        include_improvements=include_improvements,
+    )
+    fmt = report_format.strip().lower()
+    if fmt not in {"markdown", "json", "github"}:
+        typer.secho(f"unknown --format {report_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    text = render_report_diff(fmt, diff_result, top_changes=top_changes)
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote diff report to {output}")
+    else:
+        typer.echo(text)
+
+    if manifest_out is not None:
+        manifest = CiManifest(diff_report=str(output) if output else None)
+        manifest.manifest_path = str(manifest_out)
+        write_manifest(str(manifest_out), manifest)
+        typer.echo(f"wrote manifest to {manifest_out}")
+
+
+@app.command("ci-manifest")
+def ci_manifest_cmd(
+    manifest_path: Annotated[Path, typer.Argument(help="Path to write manifest JSON")],
+    raw_opt_yaml: Annotated[
+        list[str],
+        typer.Option("--raw-opt-yaml", help="Path to raw .opt.yaml (repeatable)."),
+    ] = [],
+    markdown_report: Annotated[str | None, typer.Option("--markdown-report")] = None,
+    json_report: Annotated[str | None, typer.Option("--json-report")] = None,
+    github_comment: Annotated[str | None, typer.Option("--github-comment")] = None,
+    diff_report: Annotated[str | None, typer.Option("--diff-report")] = None,
+    policy_report: Annotated[str | None, typer.Option("--policy-report")] = None,
+    git_sha: Annotated[str | None, typer.Option("--git-sha")] = None,
+    build_id: Annotated[str | None, typer.Option("--build-id")] = None,
+    ci_provider: Annotated[str | None, typer.Option("--ci-provider")] = None,
+) -> None:
+    """Write a CI artifact manifest describing generated report files."""
+
+    manifest = CiManifest(
+        git_sha=git_sha,
+        build_id=build_id,
+        ci_provider=ci_provider,
+        raw_opt_yaml=list(raw_opt_yaml),
+        markdown_report=markdown_report,
+        json_report=json_report,
+        github_comment=github_comment,
+        diff_report=diff_report,
+        policy_report=policy_report,
+        manifest_path=str(manifest_path),
+    )
+    write_manifest(str(manifest_path), manifest)
+    typer.echo(f"wrote manifest to {manifest_path}")
 
 
 @app.command("alignment")
