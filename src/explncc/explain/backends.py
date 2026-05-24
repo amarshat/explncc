@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import httpx
 
 from explncc.config import ExplnccConfig
+from explncc.evidence import build_evidence_packs
 from explncc.explain import prompts
+from explncc.explain.contracts import ExplanationResult
 from explncc.explain.rule_based import build_rule_explanation
 from explncc.models import OptimizationRecord
+from explncc.prompt_registry import hash_prompt_text, render_explain_prompt
+from explncc.record_identity import hash_payload
 
 
 def _records_json_slice(records: list[OptimizationRecord], limit: int) -> str:
+    """Normalized record JSON for model backends (never raw YAML)."""
+
     slim: list[dict[str, Any]] = []
     for r in records[:limit]:
         slim.append(
@@ -30,9 +37,20 @@ def _records_json_slice(records: list[OptimizationRecord], limit: int) -> str:
                 "threshold": r.threshold,
                 "vectorization_factor": r.vectorization_factor,
                 "unroll_factor": r.unroll_factor,
+                "record_hash": r.record_hash,
             },
         )
     return json.dumps(slim, indent=2, ensure_ascii=False)
+
+
+def _evidence_hash(records: list[OptimizationRecord]) -> str | None:
+    if not records:
+        return None
+    packs = build_evidence_packs(records[: min(len(records), 8)])
+    parts = [p.evidence_hash for p in packs if p.evidence_hash]
+    if not parts:
+        return None
+    return hash_payload({"evidence_hashes": sorted(parts)})
 
 
 def ollama_available(host: str, timeout: float = 2.0) -> bool:
@@ -135,6 +153,77 @@ def _anthropic_chat(config: ExplnccConfig, user: str) -> str:
         msg = "Anthropic returned an empty response."
         raise RuntimeError(msg)
     return joined
+
+
+def run_explanation_result(
+    records: list[OptimizationRecord],
+    *,
+    backend: str,
+    config: ExplnccConfig,
+    ai_limit: int = 48,
+) -> ExplanationResult:
+    """Structured backend result with hashes and fallback metadata."""
+
+    started = time.perf_counter()
+    rule = build_rule_explanation(records)
+    mode = backend.strip().lower()
+    records_json = _records_json_slice(records, ai_limit)
+    prompt_text, template_id, _ = render_explain_prompt(
+        rule_summary=rule,
+        records_json=records_json,
+    )
+    prompt_hash = hash_prompt_text(prompt_text)
+    evidence_hash = _evidence_hash(records)
+
+    if mode == "rule":
+        return ExplanationResult(
+            backend="rule",
+            model=None,
+            success=True,
+            text=rule,
+            prompt_hash=prompt_hash,
+            evidence_hash=evidence_hash,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    try:
+        text = run_explanation(records, backend=mode, config=config, ai_limit=ai_limit)
+    except ValueError as exc:
+        return ExplanationResult(
+            backend=mode,
+            model=None,
+            success=False,
+            text=rule,
+            fallback_used=True,
+            warnings=[str(exc)],
+            prompt_hash=prompt_hash,
+            evidence_hash=evidence_hash,
+            error_type="ValueError",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    used_fallback = "Showing rule-based explanation only" in text or "Auto: Ollama unavailable" in text
+    model_name: str | None = None
+    if mode == "ollama":
+        model_name = config.ollama_model
+    elif mode == "openai":
+        model_name = config.openai_model
+    elif mode == "claude":
+        model_name = config.anthropic_model
+    elif mode == "auto":
+        model_name = "auto"
+
+    return ExplanationResult(
+        backend=mode,
+        model=model_name,
+        success=not used_fallback or bool(text.strip()),
+        text=text,
+        fallback_used=used_fallback,
+        warnings=[] if not used_fallback else ["model backend failed; rule text retained"],
+        prompt_hash=prompt_hash,
+        evidence_hash=evidence_hash,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+    )
 
 
 def run_explanation(
