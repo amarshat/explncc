@@ -1,15 +1,15 @@
-# explncc — optimization remark report in GitHub Actions
+# GitHub Actions — optimization remark report (Chapter 12)
 #
-# Copy to .github/workflows/ and set OPT_YAML to the path of your .opt.yaml artifact.
-# Book: Chapter 12 — Adding an LLM Layer to Your Compiler CI
+# Copy to .github/workflows/. No model backend by default.
+# Book: Compiler Optimization CI Feedback Loop
 
 name: explncc report
 
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "**/*.opt.yaml"
+  push:
+    branches: [main]
 
 jobs:
   optimization-report:
@@ -17,7 +17,6 @@ jobs:
     permissions:
       contents: read
     env:
-      # Replace with the file your compile job produces or downloads from an artifact.
       OPT_YAML: ${{ github.workspace }}/tests/fixtures/inline_miss_no_definition.opt.yaml
 
     steps:
@@ -30,36 +29,41 @@ jobs:
       - name: Install explncc
         run: pip install .
 
-      - name: Append Markdown to job summary
+      - name: Markdown job summary
         run: |
           python -m explncc report "$OPT_YAML" \
             --format markdown \
-            --title "Optimization remarks (${{ github.sha }})" \
             --top-missed 15 \
-            --no-explain \
+            --git-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
+            --ci-provider github \
             >> "$GITHUB_STEP_SUMMARY"
 
-      - name: PR-style comment body (save artifact; post with gh or an action)
+      - name: JSON dashboard artifact
+        run: |
+          python -m explncc report "$OPT_YAML" \
+            --format json \
+            --git-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
+            --ci-provider github \
+            -o report.json \
+            --write-manifest manifest.json
+
+      - name: PR comment body (artifact only)
+        if: github.event_name == 'pull_request'
         run: |
           python -m explncc report "$OPT_YAML" \
             --format github \
-            --title "Optimization remarks" \
             --top-missed 12 \
-            --no-explain \
+            --git-sha "${{ github.sha }}" \
             -o pr-comment.md
 
-      - name: Upload comment body
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: explncc-pr-comment
-          path: pr-comment.md
-
-      # Optional: fail the job when policy thresholds are exceeded.
-      # - name: Policy gate
-      #   run: |
-      #     python -m explncc report "$OPT_YAML" \
-      #       --format json \
-      #       -o report.json \
-      #       --no-explain \
-      #       --fail-on-check \
-      #       --max-missed-inline 50
+          name: explncc-reports
+          path: |
+            report.json
+            manifest.json
+            pr-comment.md
+          if-no-files-found: ignore

@@ -4,8 +4,10 @@ Copy these patterns into your own pipelines. explncc is **read-only** on `.opt.y
 
 | Path | Use |
 |------|-----|
-| [github-actions/explncc-report.yml](github-actions/explncc-report.yml) | GitHub Actions: job summary + optional thresholds |
-| [jenkins/Jenkinsfile.snippet](jenkins/Jenkinsfile.snippet) | Jenkins: `sh` + archive HTML/Markdown |
-| [cron/cron.example](cron/example.cron) | Local scheduler: one-line schedule |
+| [github-actions/explncc-report.yml](github-actions/explncc-report.yml) | Step summary + JSON + PR comment artifact |
+| [github-actions/explncc-gated.yml](github-actions/explncc-gated.yml) | Deterministic `--fail-on-check` gate |
+| [github-actions/explncc-diff-pr.yml](github-actions/explncc-diff-pr.yml) | Semantic `report-diff` for PRs |
+| [jenkins/Jenkinsfile.snippet](jenkins/Jenkinsfile.snippet) | Markdown + JSON + gate + archive |
+| [cron/run_nightly_report.sh](cron/run_nightly_report.sh) | Timestamped nightly archive |
 
-Related docs: [docs/chapter-12-notes.md](../../docs/chapter-12-notes.md).
+Related docs: [docs/chapter-12-ci.md](../../docs/chapter-12-ci.md).

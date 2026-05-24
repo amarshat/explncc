@@ -1,0 +1,53 @@
+# GitHub Actions — semantic optimization diff for PRs (Chapter 12)
+#
+# Compares baseline .opt.yaml (artifact or path) to PR build output.
+# Does not infer source edits — compiler evidence only.
+
+name: explncc report-diff
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  optimization-diff:
+    runs-on: ubuntu-latest
+    env:
+      BASELINE_OPT: ${{ github.workspace }}/tests/fixtures/inline_miss_no_definition.opt.yaml
+      PR_OPT: ${{ github.workspace }}/tests/fixtures/inline_miss_no_definition.opt.yaml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install explncc
+        run: pip install .
+
+      # Replace with: download baseline artifact from main branch compile job
+      # - uses: actions/download-artifact@v4
+      #   with:
+      #     name: baseline-opt-yaml
+      #     path: baseline/
+
+      - name: Semantic diff report
+        run: |
+          python -m explncc report-diff \
+            "$BASELINE_OPT" \
+            "$PR_OPT" \
+            --before-label main \
+            --after-label "pr-${{ github.event.pull_request.number || 'local' }}" \
+            --format github \
+            --top-changes 15 \
+            -o pr-diff-comment.md \
+            --write-manifest diff-manifest.json
+
+      - name: Upload diff comment body
+        uses: actions/upload-artifact@v4
+        with:
+          name: explncc-pr-diff
+          path: |
+            pr-diff-comment.md
+            diff-manifest.json

@@ -1,5 +1,5 @@
-// Jenkins: run explncc after a stage that produces optimization-record YAML.
-// Install explncc on the agent (venv or system Python), then archive the report.
+// Jenkins: optimization remark report + deterministic gate (Chapter 12)
+// Requires explncc on the agent (venv or system Python).
 
 stage('Optimization remark report') {
     steps {
@@ -11,13 +11,33 @@ stage('Optimization remark report') {
                 --format markdown \
                 --title "Build ${BUILD_NUMBER} optimization remarks" \
                 --top-missed 20 \
-                --no-explain \
+                --build-id "${BUILD_NUMBER}" \
+                --ci-provider jenkins \
                 -o "${WORKSPACE}/explncc-report.md"
+            python3 -m explncc report "$OPT_YAML" \
+                --format json \
+                --build-id "${BUILD_NUMBER}" \
+                --ci-provider jenkins \
+                -o "${WORKSPACE}/explncc-report.json" \
+                --write-manifest "${WORKSPACE}/explncc-manifest.json"
         '''
-        archiveArtifacts artifacts: 'explncc-report.md', onlyIfSuccessful: false
+        archiveArtifacts artifacts: 'explncc-report.md, explncc-report.json, explncc-manifest.json', onlyIfSuccessful: false
     }
 }
 
-// Optional gate (fails the stage when thresholds are exceeded):
-//   python3 -m explncc report "$OPT_YAML" --format json --no-explain \\
-//       --fail-on-check --max-missed-loop-vectorize 100
+stage('Optimization policy gate') {
+    steps {
+        sh '''
+            set -e
+            OPT_YAML="${WORKSPACE}/build/your.opt.yaml"
+            python3 -m explncc report "$OPT_YAML" \
+                --format markdown \
+                --fail-on-check \
+                --max-missed-inline 80 \
+                --build-id "${BUILD_NUMBER}" \
+                -o "${WORKSPACE}/explncc-gate.md" || GATE_FAILED=1
+            archiveArtifacts artifacts: 'explncc-gate.md', onlyIfSuccessful: false
+            test -z "${GATE_FAILED:-}"
+        '''
+    }
+}

@@ -1,0 +1,64 @@
+# GitHub Actions — deterministic policy gate (Chapter 12)
+#
+# Fails the job when missed-inline exceeds threshold.
+# Uploads gate.md even on failure.
+
+name: explncc gated report
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  optimization-gate:
+    runs-on: ubuntu-latest
+    env:
+      OPT_YAML: ${{ github.workspace }}/tests/fixtures/inline_miss_no_definition.opt.yaml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install explncc
+        run: pip install .
+
+      - name: Deterministic gate
+        id: gate
+        continue-on-error: true
+        run: |
+          python -m explncc report "$OPT_YAML" \
+            --format markdown \
+            --fail-on-check \
+            --max-missed-inline 80 \
+            --git-sha "${{ github.sha }}" \
+            --ci-provider github \
+            -o gate.md \
+            --write-manifest gate-manifest.json
+
+      # Optional: rule-based triage only when the gate fails (uncomment to enable).
+      # - name: Triage notes on failure
+      #   if: steps.gate.outcome == 'failure'
+      #   run: |
+      #     python -m explncc report "$OPT_YAML" \
+      #       --format markdown \
+      #       --explain-backend rule \
+      #       --explain-only-on-failure \
+      #       --fail-on-check \
+      #       --max-missed-inline 80 \
+      #       -o gate-with-notes.md
+
+      - name: Upload gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: explncc-gate
+          path: |
+            gate.md
+            gate-manifest.json
+
+      - name: Fail job if gate failed
+        if: steps.gate.outcome == 'failure'
+        run: exit 1
