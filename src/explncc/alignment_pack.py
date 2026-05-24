@@ -75,6 +75,8 @@ class AlignmentEvidencePack(BaseModel):
 
 
 def _record_hash(record: OptimizationRecord) -> str:
+    if record.record_hash:
+        return record.record_hash
     payload = {
         "kind": record.kind,
         "pass": record.pass_name,

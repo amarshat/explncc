@@ -1,16 +1,19 @@
-"""Minimal semantic evidence packs (Chapter 10) built from normalized remarks."""
+"""Evidence packs (Chapter 10/13): deterministic model-facing compiler evidence."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from explncc.context_snippets import ContextSnippetRequest, gather_context_snippets
+from explncc.exporters import record_to_json_dict
 from explncc.models import OptimizationRecord
+
+PackType = Literal["single", "cluster", "diff", "alignment", "ci"]
 
 
 class DebugLocation(BaseModel):
@@ -37,6 +40,18 @@ class EvidencePack(BaseModel):
     """Deterministic, minimal evidence derived from one :class:`OptimizationRecord`."""
 
     pack_id: str
+    pack_type: PackType = "single"
+    evidence_hash: str | None = None
+    prompt_ready: bool = False
+    primary_record: dict[str, Any] | None = Field(
+        default=None,
+        description="Normalized primary remark (JSON-serializable).",
+    )
+    source_context: str | None = None
+    ir_context: str | None = None
+    assembly_context: str | None = None
+    target_context: dict[str, Any] | None = None
+    build_metadata: dict[str, Any] | None = None
     optimization_log_path: str | None = Field(
         default=None,
         description="Path to the .opt.yaml document stream this pack was built from.",
@@ -101,9 +116,11 @@ def _is_vector_family(record: OptimizationRecord) -> bool:
     return "vector" in (record.pass_name or "").lower()
 
 
-def _pack_id(record: OptimizationRecord, *, ordinal: int) -> str:
+def _pack_id(record: OptimizationRecord, *, ordinal: int, pack_type: PackType = "single") -> str:
     payload = {
+        "pack_type": pack_type,
         "ordinal": ordinal,
+        "record_hash": record.record_hash,
         "opt_yaml": record.source_path,
         "kind": record.kind,
         "pass": record.pass_name,
@@ -118,6 +135,37 @@ def _pack_id(record: OptimizationRecord, *, ordinal: int) -> str:
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _evidence_hash(pack: EvidencePack) -> str:
+    payload = pack.model_dump(
+        exclude={"pack_id", "evidence_hash", "prompt_ready"},
+        exclude_none=True,
+    )
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _target_context_dict(
+    triple: str | None,
+    cpu: str | None,
+    march: str | None,
+) -> dict[str, Any] | None:
+    if not any((triple, cpu, march)):
+        return None
+    return {"target_triple": triple, "cpu": cpu, "march": march}
+
+
+def _is_prompt_ready(pack: EvidencePack) -> bool:
+    return bool(pack.primary_kind and pack.primary_pass and pack.normalized_message is not None)
+
+
+def finalize_evidence_pack(pack: EvidencePack) -> EvidencePack:
+    """Set evidence_hash and prompt_ready after all fields are populated."""
+
+    pack.evidence_hash = _evidence_hash(pack)
+    pack.prompt_ready = _is_prompt_ready(pack)
+    return pack
 
 
 def _select_related(
@@ -167,6 +215,8 @@ def _compute_missing_context(record: OptimizationRecord, pack: EvidencePack) -> 
         missing.append("source_snippet")
     if pack.ir_snippet is None:
         missing.append("ir_snippet")
+    if pack.assembly_context is None:
+        missing.append("assembly_snippet")
     if pack.target_triple is None:
         missing.append("target_triple")
     if _is_vector_family(record):
@@ -185,6 +235,9 @@ def build_evidence_pack(
     max_related: int = 20,
     source_snippet: str | None = None,
     ir_snippet: str | None = None,
+    assembly_snippet: str | None = None,
+    pack_type: PackType = "single",
+    build_metadata: dict[str, Any] | None = None,
 ) -> EvidencePack:
     """Build one evidence pack from a normalized remark.
 
@@ -200,7 +253,14 @@ def build_evidence_pack(
         related = _select_related(record, related_candidates, max_related=max_related)
 
     pack = EvidencePack(
-        pack_id=_pack_id(record, ordinal=ordinal),
+        pack_id=_pack_id(record, ordinal=ordinal, pack_type=pack_type),
+        pack_type=pack_type,
+        primary_record=record_to_json_dict(record),
+        source_context=source_snippet,
+        ir_context=ir_snippet,
+        assembly_context=assembly_snippet,
+        target_context=_target_context_dict(triple, cpu, march),
+        build_metadata=build_metadata,
         optimization_log_path=record.source_path,
         source_file=record.file,
         function=record.function,
@@ -227,7 +287,7 @@ def build_evidence_pack(
         missing_context=[],
     )
     pack.missing_context = _compute_missing_context(record, pack)
-    return pack
+    return finalize_evidence_pack(pack)
 
 
 def build_evidence_packs(
@@ -249,6 +309,22 @@ def build_evidence_packs(
             max_related=max_related,
             source_snippet=snippets.source_snippet,
             ir_snippet=snippets.ir_snippet,
+            assembly_snippet=snippets.assembly_snippet,
         )
         packs.append(pack)
     return packs
+
+
+def build_ci_evidence_pack(
+    record: OptimizationRecord,
+    *,
+    build_metadata: dict[str, Any] | None = None,
+) -> EvidencePack:
+    """Single-record CI-oriented evidence pack."""
+
+    return build_evidence_pack(
+        record,
+        pack_type="ci",
+        build_metadata=build_metadata,
+        max_related=0,
+    )
