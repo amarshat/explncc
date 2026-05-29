@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
-from explncc.context_snippets import format_source_snippet_markdown
 from explncc.alignment_pack import AlignmentEvidencePack
+from explncc.context_snippets import format_source_snippet_markdown
 
 
 def render_alignment_evidence_packs(packs: Sequence[AlignmentEvidencePack], fmt: str) -> str:

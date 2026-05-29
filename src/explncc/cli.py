@@ -6,17 +6,30 @@ import json
 from pathlib import Path
 from typing import Annotated, Any, cast
 
-from explncc.alignment import AlignmentLabel, alignment_signals, classify_alignment, filter_alignment_related
-from explncc.alignment_pack import ALIGNMENT_LABELS, build_alignment_evidence_packs
-from explncc.alignment_pack_output import render_alignment_evidence_packs
+import typer
+from rich.console import Console
+
+from explncc import __version__
+from explncc.alignment import (
+    AlignmentLabel,
+    alignment_signals,
+    classify_alignment,
+    filter_alignment_related,
+)
 from explncc.alignment_bench import build_alignment_bench_prompt_lines
-from explncc.alignment_eval import evaluate_predictions, load_predictions_jsonl
-from explncc.alignment_eval_output import render_eval_report
 from explncc.alignment_dataset import (
     ALIGNMENT_EXPORT_FORMATS,
     AlignmentExportFormat,
     build_alignment_training_rows,
 )
+from explncc.alignment_eval import evaluate_predictions, load_predictions_jsonl
+from explncc.alignment_eval_output import render_eval_report
+from explncc.alignment_pack import ALIGNMENT_LABELS, build_alignment_evidence_packs
+from explncc.alignment_pack_output import render_alignment_evidence_packs
+from explncc.checks import build_policy_result, run_checks
+from explncc.ci_manifest import CiManifest, write_manifest
+from explncc.ci_report import parse_report_format, render_report
+from explncc.config import load_config, render_doctor
 from explncc.context_snippets import ContextSnippetRequest
 from explncc.dataset_llm import (
     ExportFormat,
@@ -24,30 +37,35 @@ from explncc.dataset_llm import (
     build_training_rows,
     write_jsonl,
 )
-
-import typer
-from rich.console import Console
-
-from explncc import __version__
-from explncc.checks import CheckResult, build_policy_result, run_checks
-from explncc.ci_manifest import CiManifest, write_manifest
-from explncc.ci_report import parse_report_format, render_report
-from explncc.report_diff import build_report_diff, render_report_diff
-from explncc.report_helpers import policy_thresholds_active, report_source_info, resolve_explanation
-from explncc.report_types import ReportBuildOptions, ReportMetadata
-from explncc.config import load_config, render_doctor
-from explncc.digest import build_digest, format_digest_json
 from explncc.diffing import DiffReport, diff_records
-from explncc.records_loader import load_records
-from explncc.trace import build_trace, render_trace
+from explncc.digest import build_digest, format_digest_json
 from explncc.evidence import build_evidence_packs
 from explncc.evidence_output import render_evidence_packs
 from explncc.explain.backends import run_explanation
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
+from explncc.local.classifier import classify_record
+from explncc.local.contracts import Confidence, confidence_at_least
+from explncc.local.ml_ranker import LocalModelRanker, ModelRankerUnavailable
+from explncc.local.output import (
+    CLASSIFY_COLUMNS,
+    CLASSIFY_FORMATS,
+    RANK_COLUMNS,
+    RANK_FORMATS,
+    classification_rows,
+    ranked_rows,
+    render_classifications,
+    render_findings,
+)
+from explncc.local.ranker import LocalRankerV1, RankedFinding
 from explncc.models import OptimizationRecord
+from explncc.records_loader import load_records
 from explncc.render import print_table
+from explncc.report_diff import build_report_diff, render_report_diff
+from explncc.report_helpers import policy_thresholds_active, report_source_info, resolve_explanation
+from explncc.report_types import ReportBuildOptions, ReportMetadata
 from explncc.stats import aggregate
 from explncc.summary import apply_filters, rows_for_table, truncate_message
+from explncc.trace import build_trace, render_trace
 from explncc.viz import parse_viz_format, parse_viz_style, render_viz
 
 app = typer.Typer(
@@ -652,6 +670,203 @@ def explain_cmd(
 
     text = run_explanation(records, backend=mode, config=config, ai_limit=ai_limit)
     typer.echo(text)
+
+
+def _resolve_findings(
+    records: list[OptimizationRecord],
+    *,
+    ranker: str,
+    model_path: Path | None,
+    include_passed: bool,
+    focus: str | None,
+) -> list[RankedFinding]:
+    """Select heuristic or model ranker and return ranked findings."""
+
+    mode = ranker.strip().lower()
+    if mode == "model":
+        if model_path is None:
+            typer.secho(
+                "--ranker model requires --model-path",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(2)
+        try:
+            model = LocalModelRanker.load(model_path)
+            return model.rank(records)
+        except ModelRankerUnavailable as exc:
+            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
+    if mode != "heuristic":
+        typer.secho(f"unknown --ranker {ranker!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    return LocalRankerV1(include_passed=include_passed, focus=focus).rank_records(records)
+
+
+@app.command("classify")
+def classify_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    local: Annotated[
+        bool,
+        typer.Option("--local/--no-local", help="Use the offline local classifier (default)."),
+    ] = True,
+    classify_format: Annotated[
+        str,
+        typer.Option("--format", help="table | json | jsonl | markdown"),
+    ] = "table",
+    label_filter: Annotated[
+        str | None,
+        typer.Option("--label-filter", help="Keep only this local label."),
+    ] = None,
+    min_confidence: Annotated[
+        str | None,
+        typer.Option("--min-confidence", help="low | medium | high"),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", help="Max rows after filtering.")] = 0,
+    focus: Annotated[
+        str | None,
+        typer.Option("--focus", help="Set to 'alignment' to enable alignment labels."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+) -> None:
+    """Classify remarks into local labels offline (rule-based, no network)."""
+
+    _ = local  # local is the only path for classify; flag is for symmetry/CI clarity.
+    fmt = classify_format.strip().lower()
+    if fmt not in CLASSIFY_FORMATS:
+        typer.secho(f"unknown --format {classify_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    min_conf: Confidence | None = None
+    if min_confidence is not None:
+        mc = min_confidence.strip().lower()
+        if mc not in {"low", "medium", "high"}:
+            typer.secho(
+                "--min-confidence must be low, medium, or high",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(2)
+        min_conf = cast(Confidence, mc)
+
+    records = _load_records_or_exit(target)
+    results = [classify_record(r, focus=focus) for r in records]
+
+    paired = list(zip(records, results, strict=True))
+    if label_filter:
+        paired = [(r, c) for (r, c) in paired if c.label == label_filter]
+    if min_conf is not None:
+        paired = [(r, c) for (r, c) in paired if confidence_at_least(c.confidence, min_conf)]
+    if limit > 0:
+        paired = paired[:limit]
+
+    f_records = [r for (r, _c) in paired]
+    f_results = [c for (_r, c) in paired]
+
+    if fmt == "table":
+        rows = classification_rows(f_records, f_results)
+        if output is not None:
+            text = render_classifications(f_records, f_results, "markdown")
+            output.write_text(text, encoding="utf-8")
+            typer.echo(f"wrote {len(rows)} classification(s) to {output}")
+        else:
+            print_table(
+                stdout_console,
+                CLASSIFY_COLUMNS,
+                rows,
+                title=f"local classification ({len(rows)} remarks)",
+            )
+        return
+
+    text = render_classifications(f_records, f_results, fmt)
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote {len(f_results)} classification(s) to {output}")
+    else:
+        typer.echo(text)
+
+
+@app.command("rank")
+def rank_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    local: Annotated[
+        bool,
+        typer.Option("--local/--no-local", help="Use the offline local ranker (default)."),
+    ] = True,
+    rank_format: Annotated[
+        str,
+        typer.Option("--format", help="table | json | jsonl | markdown"),
+    ] = "table",
+    top: Annotated[int, typer.Option("--top", help="Keep only the top N findings.")] = 0,
+    min_score: Annotated[
+        float | None,
+        typer.Option("--min-score", help="Drop findings below this raw score."),
+    ] = None,
+    include_passed: Annotated[
+        bool,
+        typer.Option("--include-passed", help="Do not penalize / drop passed remarks."),
+    ] = False,
+    ranker: Annotated[
+        str,
+        typer.Option("--ranker", help="heuristic | model (default: heuristic)."),
+    ] = "heuristic",
+    model_path: Annotated[
+        Path | None,
+        typer.Option("--model-path", help="Path to a trained model (with --ranker model)."),
+    ] = None,
+    focus: Annotated[
+        str | None,
+        typer.Option("--focus", help="Set to 'alignment' to enable alignment labels."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+) -> None:
+    """Rank remarks by developer relevance offline (deterministic, explainable)."""
+
+    _ = local
+    fmt = rank_format.strip().lower()
+    if fmt not in RANK_FORMATS:
+        typer.secho(f"unknown --format {rank_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    records = _load_records_or_exit(target)
+    findings = _resolve_findings(
+        records,
+        ranker=ranker,
+        model_path=model_path,
+        include_passed=include_passed,
+        focus=focus,
+    )
+    if min_score is not None:
+        findings = [f for f in findings if f.score >= min_score]
+    if top > 0:
+        findings = findings[:top]
+
+    if fmt == "table":
+        rows = ranked_rows(findings)
+        if output is not None:
+            text = render_findings(findings, "markdown")
+            output.write_text(text, encoding="utf-8")
+            typer.echo(f"wrote {len(findings)} finding(s) to {output}")
+        else:
+            print_table(
+                stdout_console,
+                RANK_COLUMNS,
+                rows,
+                title=f"ranked findings ({len(findings)})",
+            )
+        return
+
+    text = render_findings(findings, fmt)
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote {len(findings)} finding(s) to {output}")
+    else:
+        typer.echo(text)
 
 
 @app.command("export")

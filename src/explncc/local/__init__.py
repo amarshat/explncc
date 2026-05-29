@@ -27,6 +27,7 @@ from explncc.local.features import (
     FeatureExtraction,
     extract_features,
 )
+from explncc.local.ml_ranker import LocalModelRanker, ModelRankerUnavailable
 from explncc.local.ranker import LocalRankerV1, RankedFinding, rank_records
 from explncc.local.taxonomy import (
     LABEL_IDS,
@@ -56,4 +57,6 @@ __all__ = [
     "LocalRankerV1",
     "RankedFinding",
     "rank_records",
+    "LocalModelRanker",
+    "ModelRankerUnavailable",
 ]

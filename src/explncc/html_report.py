@@ -13,7 +13,12 @@ from explncc.ci_report import (
     top_missed_remarks,
 )
 from explncc.models import OptimizationRecord
-from explncc.report_types import ExplanationInfo, ReportBuildOptions, ReportMetadata, ReportSourceInfo
+from explncc.report_types import (
+    ExplanationInfo,
+    ReportBuildOptions,
+    ReportMetadata,
+    ReportSourceInfo,
+)
 from explncc.stats import aggregate
 
 
