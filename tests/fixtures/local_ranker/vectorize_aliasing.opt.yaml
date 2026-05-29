@@ -1,0 +1,9 @@
+--- !Missed
+Pass:            loop-vectorize
+Name:            UnsafeMemoryDependence
+DebugLoc:        { File: 'process.cpp', Line: 12, Column: 3 }
+Function:        process_sensor
+Args:
+  - String:          'loop not vectorized: '
+  - String:          'cannot prove memory independence between array accesses'
+...

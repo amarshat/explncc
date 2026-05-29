@@ -1,0 +1,9 @@
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: 'app.cpp', Line: 7, Column: 0 }
+Function:        run
+Args:
+  - NumStackBytes:   '32'
+  - String:          ' stack bytes in function'
+...

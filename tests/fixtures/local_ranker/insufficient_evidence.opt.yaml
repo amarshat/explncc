@@ -1,0 +1,5 @@
+--- !Missed
+Pass:            some-opaque-pass
+DebugLoc:        { File: 'mystery.cpp', Line: 99, Column: 1 }
+Function:        mystery
+...

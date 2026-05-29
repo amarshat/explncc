@@ -1,0 +1,9 @@
+--- !Missed
+Pass:            loop-vectorize
+Name:            NotBeneficial
+DebugLoc:        { File: 'scale.cpp', Line: 20, Column: 5 }
+Function:        scale_values
+Args:
+  - String:          'loop not vectorized: '
+  - String:          'vectorization is not beneficial and is not profitable for this loop'
+...

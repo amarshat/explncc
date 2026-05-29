@@ -1,0 +1,15 @@
+--- !Missed
+Pass:            inline
+Name:            TooCostly
+DebugLoc:        { File: 'compute.cpp', Line: 31, Column: 4 }
+Function:        compute
+Args:
+  - Callee:          _Z9big_innerv
+  - String:          ' not inlined into '
+  - Caller:          compute
+  - String:          ' because too costly to inline (cost='
+  - Cost:            '450'
+  - String:          ', threshold='
+  - Threshold:       '250'
+  - String:          ')'
+...
