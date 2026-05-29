@@ -27,6 +27,7 @@ from explncc.local.features import (
     FeatureExtraction,
     extract_features,
 )
+from explncc.local.ranker import LocalRankerV1, RankedFinding, rank_records
 from explncc.local.taxonomy import (
     LABEL_IDS,
     TAXONOMY,
@@ -52,4 +53,7 @@ __all__ = [
     "DiffContext",
     "FeatureExtraction",
     "extract_features",
+    "LocalRankerV1",
+    "RankedFinding",
+    "rank_records",
 ]
