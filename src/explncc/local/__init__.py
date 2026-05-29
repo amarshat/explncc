@@ -21,6 +21,7 @@ from explncc.local.contracts import (
     confidence_at_least,
     confidence_rank,
 )
+from explncc.local.explain import build_local_explanation, explain_finding
 from explncc.local.features import (
     FEATURE_NAMES,
     DiffContext,
@@ -29,6 +30,12 @@ from explncc.local.features import (
 )
 from explncc.local.ml_ranker import LocalModelRanker, ModelRankerUnavailable
 from explncc.local.ranker import LocalRankerV1, RankedFinding, rank_records
+from explncc.local.report import (
+    LOCAL_REPORT_FORMATS,
+    LocalReport,
+    build_local_report,
+    render_local_report,
+)
 from explncc.local.taxonomy import (
     LABEL_IDS,
     TAXONOMY,
@@ -59,4 +66,10 @@ __all__ = [
     "rank_records",
     "LocalModelRanker",
     "ModelRankerUnavailable",
+    "build_local_explanation",
+    "explain_finding",
+    "LOCAL_REPORT_FORMATS",
+    "LocalReport",
+    "build_local_report",
+    "render_local_report",
 ]

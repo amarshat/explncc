@@ -345,6 +345,46 @@ def _load_records_or_exit(path: Path, *, toolchain: str = "clang") -> list[Optim
         raise typer.Exit(2) from exc
 
 
+_NETWORK_BACKENDS = {"openai", "claude", "ollama", "auto"}
+
+
+def _enforce_offline_guardrails(
+    *,
+    backend: str | None,
+    backend_explicit: bool,
+    offline: bool,
+    no_network: bool,
+    use_local: bool,
+) -> None:
+    """Fail fast when offline guardrails conflict with a requested network backend.
+
+    - ``--offline`` implies local and forbids any network/model backend.
+    - ``--no-network`` forbids OpenAI/Claude/Ollama/auto HTTP calls.
+    Both exit with code 2 and an explanatory message rather than reaching out.
+    """
+
+    requested = (backend or "").strip().lower()
+    is_network_backend = backend_explicit and requested in _NETWORK_BACKENDS
+    if offline and is_network_backend:
+        typer.secho(
+            f"--offline forbids network/model backend {requested!r}; "
+            "remove --offline or use --backend rule / --local.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if no_network and is_network_backend:
+        typer.secho(
+            f"--no-network forbids network/model backend {requested!r}; "
+            "use --backend rule or --local.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    # ``use_local`` participates so callers can pass it for future policy hooks.
+    _ = use_local
+
+
 def _top_delta_items(mapping: dict[str, int], limit: int = 20) -> list[tuple[str, int]]:
     return sorted(mapping.items(), key=lambda x: abs(x[1]), reverse=True)[:limit]
 
@@ -621,6 +661,21 @@ def explain_cmd(
             help="rule | ollama | openai | claude | auto (default: EXPLNCC_BACKEND or rule).",
         ),
     ] = None,
+    local: Annotated[
+        bool,
+        typer.Option(
+            "--local",
+            help="Offline local explanation (classify + rank + templates). No network.",
+        ),
+    ] = False,
+    offline: Annotated[
+        bool,
+        typer.Option("--offline", help="Alias for --local that also forbids network backends."),
+    ] = False,
+    no_network: Annotated[
+        bool,
+        typer.Option("--no-network", help="Guardrail: forbid any network/model backend call."),
+    ] = False,
     pass_contains: Annotated[
         str | None,
         typer.Option("--pass", help="Filter pass name substring."),
@@ -630,6 +685,10 @@ def explain_cmd(
         typer.Option("--function", help="Filter function name substring."),
     ] = None,
     kind: Annotated[str | None, typer.Option("--kind", help="Filter remark kind.")] = None,
+    focus: Annotated[
+        str | None,
+        typer.Option("--focus", help="Set to 'alignment' to enable alignment labels (local)."),
+    ] = None,
     limit: Annotated[
         int,
         typer.Option("--limit", help="Max records fed to templates / model."),
@@ -642,6 +701,30 @@ def explain_cmd(
     """Rule-based explanations with optional model augmentation."""
 
     config = load_config()
+    backend_explicit = backend is not None
+    use_local = local or offline or (not backend_explicit and config.default_backend == "local")
+    _enforce_offline_guardrails(
+        backend=backend,
+        backend_explicit=backend_explicit,
+        offline=offline,
+        no_network=no_network,
+        use_local=use_local,
+    )
+    if use_local:
+        records = _load_records_or_exit(target)
+        records = apply_filters(
+            records,
+            pass_contains=pass_contains,
+            function_contains=function_contains,
+            kind=kind,
+        )
+        if limit > 0:
+            records = records[:limit]
+        from explncc.local.explain import build_local_explanation
+
+        typer.echo(build_local_explanation(records, focus=focus))
+        return
+
     mode = (backend or config.default_backend).strip().lower()
     if mode == "openai" and not config.openai_api_key:
         typer.secho(
@@ -986,6 +1069,61 @@ def _policy_kwargs(
     }
 
 
+def _run_local_report(
+    target: Path,
+    *,
+    report_format: str,
+    title: str,
+    top_missed: int,
+    include_passed: bool,
+    policy_kw: dict[str, int | str | None],
+    output: Path | None,
+    fail_on_check: bool,
+) -> None:
+    """Render the offline local-intelligence report (markdown/json/github)."""
+
+    from explncc.local.report import build_local_report, render_local_report
+
+    fmt = report_format.strip().lower()
+    if fmt == "github":
+        fmt = "markdown"
+    if fmt == "html":
+        typer.secho(
+            "--local report supports markdown and json (use --format markdown).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if fmt not in {"markdown", "json"}:
+        typer.secho(f"unknown --format {report_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    records = _load_records_or_exit(target)
+    policy = (
+        build_policy_result(records, **policy_kw)
+        if _check_options_active(**policy_kw)
+        else None
+    )
+    policy_dict = policy.to_dict() if policy is not None else None
+
+    report = build_local_report(
+        records,
+        title=title,
+        top=top_missed,
+        include_passed=include_passed,
+        policy=policy_dict,
+    )
+    text = render_local_report(report, fmt)
+    if output is not None:
+        output.write_text(text, encoding="utf-8")
+        typer.echo(f"wrote local report to {output}")
+    else:
+        typer.echo(text)
+
+    if fail_on_check and policy is not None and not policy.ok:
+        raise typer.Exit(1)
+
+
 @app.command("report")
 def report_cmd(
     target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
@@ -993,6 +1131,21 @@ def report_cmd(
         str,
         typer.Option("--format", help="markdown | json | github | html."),
     ] = "markdown",
+    local: Annotated[
+        bool,
+        typer.Option(
+            "--local",
+            help="Offline local report (classifier + ranker + templates). No network.",
+        ),
+    ] = False,
+    offline: Annotated[
+        bool,
+        typer.Option("--offline", help="Alias for --local that also forbids network backends."),
+    ] = False,
+    no_network: Annotated[
+        bool,
+        typer.Option("--no-network", help="Guardrail: forbid any network/model backend call."),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option("-o", "--output", help="Write report to this file; default stdout."),
@@ -1119,6 +1272,19 @@ def report_cmd(
         typer.secho("--max-pass-remarks requires --pass-name-exact", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
+    config = load_config()
+    backend_explicit = explain_backend is not None
+    use_local = local or offline or (
+        backend_explicit and (explain_backend or "").strip().lower() == "local"
+    )
+    _enforce_offline_guardrails(
+        backend=explain_backend,
+        backend_explicit=backend_explicit,
+        offline=offline,
+        no_network=no_network,
+        use_local=use_local,
+    )
+
     policy_kw = _policy_kwargs(
         max_missed_loop_vectorize=max_missed_loop_vectorize,
         max_missed_inline=max_missed_inline,
@@ -1129,6 +1295,19 @@ def report_cmd(
         max_pass_remarks=max_pass_remarks,
         pass_name_exact=pass_name_exact,
     )
+
+    if use_local:
+        _run_local_report(
+            target,
+            report_format=report_format,
+            title=title,
+            top_missed=top_missed,
+            include_passed=include_passed,
+            policy_kw=policy_kw,
+            output=output,
+            fail_on_check=fail_on_check,
+        )
+        return
 
     if fail_on_check and not _check_options_active(**policy_kw):
         typer.secho(
@@ -1161,7 +1340,6 @@ def report_cmd(
 
     policy = build_policy_result(records, **policy_kw) if _check_options_active(**policy_kw) else None
 
-    config = load_config()
     explanation, explain_exit = resolve_explanation(
         records,
         enabled=not no_explain,

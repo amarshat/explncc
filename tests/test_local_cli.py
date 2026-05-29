@@ -99,3 +99,57 @@ def test_rank_model_with_missing_model_fails_clearly() -> None:
     )
     assert result.exit_code == 2
     assert "not implemented" in result.output or "model" in result.output
+
+
+SIMD = Path(__file__).resolve().parent / "fixtures" / "simd_vectorized.opt.yaml"
+
+
+def test_explain_local_is_evidence_first() -> None:
+    result = runner.invoke(app, ["explain", str(SIMD), "--local"])
+    assert result.exit_code == 0
+    assert "Compiler evidence:" in result.stdout
+    assert "Local diagnosis:" in result.stdout
+    assert "Explanation:" in result.stdout
+    assert "vectorize_success" in result.stdout
+
+
+def test_explain_offline_forbids_openai_backend() -> None:
+    result = runner.invoke(app, ["explain", str(SIMD), "--offline", "--backend", "openai"])
+    assert result.exit_code == 2
+    assert "offline" in result.output.lower()
+
+
+def test_explain_no_network_forbids_ollama() -> None:
+    result = runner.invoke(app, ["explain", str(SIMD), "--no-network", "--backend", "ollama"])
+    assert result.exit_code == 2
+
+
+def test_report_local_markdown_sections() -> None:
+    result = runner.invoke(app, ["report", str(FIXTURE), "--local", "--format", "markdown"])
+    assert result.exit_code == 0
+    assert "## Summary" in result.stdout
+    assert "## Top ranked findings" in result.stdout
+    assert "## Local diagnosis summary by label" in result.stdout
+    assert "## Recommended actions" in result.stdout
+
+
+def test_report_local_json() -> None:
+    result = runner.invoke(app, ["report", str(FIXTURE), "--local", "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["total"] == 2
+    assert "top_findings" in payload
+    assert "by_label" in payload
+
+
+def test_report_local_html_rejected() -> None:
+    result = runner.invoke(app, ["report", str(FIXTURE), "--local", "--format", "html"])
+    assert result.exit_code == 2
+
+
+def test_report_offline_forbids_network_backend() -> None:
+    result = runner.invoke(
+        app,
+        ["report", str(FIXTURE), "--offline", "--explain-backend", "claude"],
+    )
+    assert result.exit_code == 2
