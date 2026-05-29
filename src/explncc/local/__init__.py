@@ -21,6 +21,12 @@ from explncc.local.contracts import (
     confidence_at_least,
     confidence_rank,
 )
+from explncc.local.features import (
+    FEATURE_NAMES,
+    DiffContext,
+    FeatureExtraction,
+    extract_features,
+)
 from explncc.local.taxonomy import (
     LABEL_IDS,
     TAXONOMY,
@@ -42,4 +48,8 @@ __all__ = [
     "is_known_label",
     "classify_record",
     "classify_records",
+    "FEATURE_NAMES",
+    "DiffContext",
+    "FeatureExtraction",
+    "extract_features",
 ]
