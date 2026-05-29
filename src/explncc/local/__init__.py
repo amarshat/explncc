@@ -43,6 +43,11 @@ from explncc.local.taxonomy import (
     get_label,
     is_known_label,
 )
+from explncc.local.training_export import (
+    TRAINING_FORMATS,
+    build_training_rows,
+    render_training_rows,
+)
 
 __all__ = [
     "Confidence",
@@ -72,4 +77,7 @@ __all__ = [
     "LocalReport",
     "build_local_report",
     "render_local_report",
+    "TRAINING_FORMATS",
+    "build_training_rows",
+    "render_training_rows",
 ]

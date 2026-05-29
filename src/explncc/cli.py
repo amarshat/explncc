@@ -57,6 +57,13 @@ from explncc.local.output import (
     render_findings,
 )
 from explncc.local.ranker import LocalRankerV1, RankedFinding
+from explncc.local.training_export import (
+    TRAINING_FORMATS,
+    render_training_rows,
+)
+from explncc.local.training_export import (
+    build_training_rows as build_local_training_rows,
+)
 from explncc.models import OptimizationRecord
 from explncc.records_loader import load_records
 from explncc.render import print_table
@@ -952,6 +959,58 @@ def rank_cmd(
     if output is not None:
         output.write_text(text, encoding="utf-8")
         typer.echo(f"wrote {len(findings)} finding(s) to {output}")
+    else:
+        typer.echo(text)
+
+
+@app.command("export-training")
+def export_training_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    training_format: Annotated[
+        str,
+        typer.Option("--format", help="jsonl | csv"),
+    ] = "jsonl",
+    include_labels_from: Annotated[
+        str,
+        typer.Option("--include-labels-from", help="Label source: rules."),
+    ] = "rules",
+    focus: Annotated[
+        str | None,
+        typer.Option("--focus", help="Set to 'alignment' to enable alignment labels."),
+    ] = None,
+    include_passed: Annotated[
+        bool,
+        typer.Option("--include-passed", help="Do not penalize passed remarks when scoring."),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option("-o", "--output", help="Write to this file; default stdout."),
+    ] = None,
+) -> None:
+    """Export normalized feature rows + rule labels for future model training (offline)."""
+
+    fmt = training_format.strip().lower()
+    if fmt not in TRAINING_FORMATS:
+        typer.secho(f"unknown --format {training_format!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    records = _load_records_or_exit(target)
+    try:
+        rows = build_local_training_rows(
+            records,
+            include_labels_from=include_labels_from,
+            focus=focus,
+            include_passed=include_passed,
+        )
+    except ValueError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    text = render_training_rows(rows, fmt)
+    if output is not None:
+        suffix = "" if text.endswith("\n") else "\n"
+        output.write_text(text + suffix, encoding="utf-8")
+        typer.echo(f"wrote {len(rows)} training row(s) to {output}")
     else:
         typer.echo(text)
 
