@@ -13,6 +13,7 @@ Compiler evidence remains authoritative; local labels and scores express
 
 from __future__ import annotations
 
+from explncc.local.classifier import classify_record, classify_records
 from explncc.local.contracts import (
     ClassificationResult,
     Confidence,
@@ -39,4 +40,6 @@ __all__ = [
     "LocalLabel",
     "get_label",
     "is_known_label",
+    "classify_record",
+    "classify_records",
 ]
