@@ -244,7 +244,11 @@ DOCS := \
 	docs/report-formats.md \
 	docs/caching-and-digest.md \
 	docs/toolchain-notes.md \
-	docs/chapter-14-notes.md
+	docs/chapter-14-notes.md \
+	docs/offline-first.md \
+	docs/local-mode.md \
+	docs/local-ranker.md \
+	docs/classifier-labels.md
 
 docs-check:
 	@for f in $(DOCS); do test -f $$f || { echo "missing $$f"; exit 1; }; done
