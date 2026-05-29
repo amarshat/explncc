@@ -226,6 +226,20 @@ def run_explanation_result(
     )
 
 
+_NETWORK_BACKENDS = {"ollama", "openai", "claude", "auto"}
+
+
+def _guard_no_network(mode: str, config: ExplnccConfig) -> None:
+    """Raise when a network backend is requested but the no-network guardrail is set."""
+
+    if config.no_network and mode in _NETWORK_BACKENDS:
+        msg = (
+            f"network backend {mode!r} is blocked because no-network mode is active "
+            "(EXPLNCC_NO_NETWORK/EXPLNCC_OFFLINE). Use backend 'rule' or local mode."
+        )
+        raise ValueError(msg)
+
+
 def run_explanation(
     records: list[OptimizationRecord],
     *,
@@ -239,6 +253,7 @@ def run_explanation(
     mode = backend.strip().lower()
     if mode == "rule":
         return rule
+    _guard_no_network(mode, config)
 
     payload = prompts.user_message(
         rule_summary=rule,

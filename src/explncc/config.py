@@ -11,6 +11,12 @@ from typing import Any
 from explncc import __version__
 from explncc.prompt_registry import list_prompt_template_ids
 
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUE_VALUES
+
 
 @dataclass(frozen=True)
 class ExplnccConfig:
@@ -22,6 +28,7 @@ class ExplnccConfig:
     anthropic_api_key: str | None
     anthropic_model: str
     cache_dir: str | None = None
+    no_network: bool = False
 
 
 def load_config() -> ExplnccConfig:
@@ -37,6 +44,7 @@ def load_config() -> ExplnccConfig:
             "claude-3-5-haiku-20241022",
         ).strip(),
         cache_dir=os.environ.get("EXPLNCC_CACHE_DIR"),
+        no_network=_env_flag("EXPLNCC_NO_NETWORK") or _env_flag("EXPLNCC_OFFLINE"),
     )
 
 
@@ -61,6 +69,9 @@ def build_doctor_report() -> dict[str, Any]:
         "explncc_version": __version__,
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
+        "offline_first": True,
+        "no_network": c.no_network,
+        "network_backends_allowed": not c.no_network,
         "default_backend": c.default_backend,
         "ollama_host_configured": bool(c.ollama_host),
         "ollama_host": c.ollama_host,

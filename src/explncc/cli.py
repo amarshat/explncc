@@ -355,11 +355,13 @@ def _enforce_offline_guardrails(
     offline: bool,
     no_network: bool,
     use_local: bool,
+    config_no_network: bool = False,
 ) -> None:
     """Fail fast when offline guardrails conflict with a requested network backend.
 
     - ``--offline`` implies local and forbids any network/model backend.
-    - ``--no-network`` forbids OpenAI/Claude/Ollama/auto HTTP calls.
+    - ``--no-network`` (flag or ``EXPLNCC_NO_NETWORK``/``EXPLNCC_OFFLINE`` env)
+      forbids OpenAI/Claude/Ollama/auto HTTP calls.
     Both exit with code 2 and an explanatory message rather than reaching out.
     """
 
@@ -373,9 +375,10 @@ def _enforce_offline_guardrails(
             err=True,
         )
         raise typer.Exit(2)
-    if no_network and is_network_backend:
+    if (no_network or config_no_network) and is_network_backend:
+        source = "--no-network" if no_network else "EXPLNCC_NO_NETWORK/EXPLNCC_OFFLINE"
         typer.secho(
-            f"--no-network forbids network/model backend {requested!r}; "
+            f"{source} forbids network/model backend {requested!r}; "
             "use --backend rule or --local.",
             fg=typer.colors.RED,
             err=True,
@@ -709,6 +712,7 @@ def explain_cmd(
         offline=offline,
         no_network=no_network,
         use_local=use_local,
+        config_no_network=config.no_network,
     )
     if use_local:
         records = _load_records_or_exit(target)
@@ -1283,6 +1287,7 @@ def report_cmd(
         offline=offline,
         no_network=no_network,
         use_local=use_local,
+        config_no_network=config.no_network,
     )
 
     policy_kw = _policy_kwargs(
