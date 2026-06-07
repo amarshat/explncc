@@ -100,6 +100,17 @@ _COST_MARKERS: tuple[str, ...] = (
     "beneficial to vectorize",
 )
 
+# A loop-carried memory dependence (e.g. a[i] = a[i-1] + ...) is a legality miss,
+# not an alignment one. Matches the real LLVM UnsafeDep remark text.
+_DEPENDENCE_MARKERS: tuple[str, ...] = (
+    "dependent memory operations",
+    "backward loop carried",
+    "loop carried data dependence",
+    "loop-carried dependence",
+    "carried data dependence",
+    "memory dependence",
+)
+
 _OTHER_CAUSE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("no definition", ("no definition", "undefined", "nod definition")),
     ("call in loop", ("call in loop", "function call in loop")),
@@ -194,6 +205,12 @@ def _other_cause_reason(text: str) -> tuple[str | None, list[str]]:
                 "cost",
                 ["remark points to vectorization cost / profitability rather than alignment"],
             )
+    for marker in _DEPENDENCE_MARKERS:
+        if marker in text:
+            return (
+                "dependence",
+                ["remark points to a loop-carried memory dependence rather than alignment"],
+            )
     for label, markers in _OTHER_CAUSE_MARKERS:
         for marker in markers:
             if marker in text:
@@ -246,6 +263,12 @@ def _next_steps_for_label(
             return [
                 "inspect scalar vs vector cost estimates in the remark",
                 "review loop structure before attributing a miss to alignment",
+                "do not attribute this miss to alignment without further evidence",
+            ]
+        if cause == "dependence":
+            return [
+                "inspect the loop-carried dependence the remark names",
+                "consider loop distribution or a restructure before alignment",
                 "do not attribute this miss to alignment without further evidence",
             ]
         return [

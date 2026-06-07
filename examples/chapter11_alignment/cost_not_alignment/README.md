@@ -1,6 +1,6 @@
 # cost_not_alignment
 
-Missed vectorization due to **cost / profitability**, not alignment. Expected label: `alignment_unlikely_from_evidence`.
+Missed vectorization due to **cost / profitability**, not alignment. The real LLVM remark is an slp-vectorizer `NotBeneficial`: "List vectorization was possible but not beneficial with cost C >= Treshold T" (LLVM really does misspell the threshold key as `Treshold`). Expected label: `alignment_unlikely_from_evidence`.
 
 ## Expected alignment label
 

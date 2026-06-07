@@ -1,8 +1,13 @@
-// Possible aliasing between out and in — independence cannot be proven.
+// A loop-carried memory dependence: a[i] reads a[i-1] written last iteration.
+// The vectorizer refuses on legality, not alignment: it cannot prove the
+// iterations are independent ("unsafe dependent memory operations ... Backward
+// loop carried data dependence"). Modern Clang resolves pure pointer aliasing
+// with a runtime check and vectorizes anyway, so the real, reproducible
+// "memory-reason miss that is not alignment" is this backward dependence.
 
-void scale_add(float* out, const float* in, int n) {
-  for (int i = 0; i < n; ++i) {
-    out[i] += 0.5f * in[i];
+void accumulate(float* a, const float* b, int n) {
+  for (int i = 1; i < n; ++i) {
+    a[i] = a[i - 1] + b[i];
   }
 }
 
@@ -13,7 +18,7 @@ int main() {
     a[i] = static_cast<float>(i);
     b[i] = static_cast<float>(i + 1);
   }
-  scale_add(a, b, 256);
+  accumulate(a, b, 256);
   volatile float sink = a[7];
   return static_cast<int>(sink) & 1;
 }

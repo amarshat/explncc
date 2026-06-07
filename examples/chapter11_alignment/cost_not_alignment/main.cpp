@@ -1,14 +1,23 @@
-// Very small trip count: vectorization often rejected on cost / profitability grounds.
+// A small per-iteration select. Vectorization is legal, but the SLP cost model
+// finds it not profitable ("List vectorization was possible but not beneficial
+// with cost C >= Treshold T"). A profitability rejection is not an alignment
+// problem. (LLVM really does misspell the threshold key as "Treshold".)
 
-void bump(float* a, int n) {
+void clamp_floor(float* a, const float* b, int n) {
+#pragma clang loop vectorize(enable)
   for (int i = 0; i < n; ++i) {
-    a[i] += 1.0f;
+    a[i] = b[i] > 0.0f ? a[i] : b[i];
   }
 }
 
 int main() {
-  float xs[4] = {0.0f, 1.0f, 2.0f, 3.0f};
-  bump(xs, 2);
-  volatile float sink = xs[1];
+  float a[64];
+  float b[64];
+  for (int i = 0; i < 64; ++i) {
+    a[i] = static_cast<float>(i);
+    b[i] = static_cast<float>(i - 32);
+  }
+  clamp_floor(a, b, 64);
+  volatile float sink = a[3];
   return static_cast<int>(sink) & 1;
 }

@@ -42,6 +42,8 @@ def _overreach_traps(record: OptimizationRecord, variant: str) -> list[str]:
             traps.append("ignores aliasing remark")
         if any(w in msg or w in reasons for w in ("cost", "threshold", "beneficial")):
             traps.append("ignores cost / profitability remark")
+        if any(w in msg or w in reasons for w in ("dependent memory", "dependence", "carried")):
+            traps.append("ignores loop-carried dependence remark")
     if record.tool_version_metadata is None:
         traps.append("claims AVX2 without target evidence")
     if classification.alignment_label in {

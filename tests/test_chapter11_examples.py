@@ -74,4 +74,4 @@ def test_alignment_pack_on_aliasing_fixture_with_source() -> None:
     data = json.loads(result.stdout)
     assert data[0]["alignment_label"] == "alignment_unlikely_from_evidence"
     assert data[0]["source_snippet"] is not None
-    assert "cannot prove memory independence" in data[0]["message"]
+    assert "unsafe dependent memory operations" in data[0]["message"]

@@ -1,8 +1,11 @@
 --- !Missed
-Pass:            loop-vectorize
+Pass:            slp-vectorizer
 Name:            NotBeneficial
-DebugLoc:        { File: 'main.cpp', Line: 4, Column: 3 }
-Function:        _Z4bumpPfi
+DebugLoc:        { File: main.cpp, Line: 8, Column: 3 }
+Function:        _Z11clamp_floorPfPKfi
 Args:
-  - String:          'cost threshold prevents vectorization'
+  - String:          'List vectorization was possible but not beneficial with cost '
+  - Cost:            '0'
+  - String:          ' >= '
+  - Treshold:        '0'
 ...

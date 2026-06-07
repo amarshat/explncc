@@ -43,7 +43,15 @@ def _walk_args(
     strings: list[str],
     pairs: dict[str, str],
 ) -> tuple[str | None, str | None]:
-    """Collect human text, callee/caller names, and typed keys from Args."""
+    """Render the message stream, callee/caller names, and typed keys from Args.
+
+    LLVM emits ``Args`` as an ordered list where ``String`` fragments and typed
+    values (``Callee``, ``Caller``, ``VectorizationFactor``, ``Cost``, ...)
+    interleave to form the human-readable remark. Append every primary value in
+    order so the rendered message matches what the compiler prints (for example
+    ``vectorized loop (vectorization width: 4)`` rather than dropping the ``4``).
+    ``DebugLoc`` is positional metadata and is skipped.
+    """
 
     caller: str | None = None
     callee: str | None = None
@@ -51,21 +59,21 @@ def _walk_args(
     def visit(node: Any) -> None:
         nonlocal caller, callee
         if isinstance(node, dict):
-            if "String" in node and node["String"] is not None:
-                strings.append(str(node["String"]))
-            if "Caller" in node:
-                caller = _scalar_to_str(node.get("Caller")) or caller
-            if "Callee" in node:
-                callee = _scalar_to_str(node.get("Callee")) or callee
             for key, val in node.items():
-                if key in {"String", "Caller", "Callee", "DebugLoc"}:
+                if key == "DebugLoc":
                     continue
                 if isinstance(val, (dict, list)):
                     visit(val)
-                else:
-                    pairs[key] = _scalar_to_str(val) or ""
-            if "DebugLoc" in node:
-                visit(node["DebugLoc"])
+                    continue
+                sval = _scalar_to_str(val)
+                sval = sval if sval is not None else ""
+                strings.append(sval)
+                if key == "Caller":
+                    caller = sval or caller
+                elif key == "Callee":
+                    callee = sval or callee
+                elif key != "String":
+                    pairs[key] = sval
         elif isinstance(node, list):
             for item in node:
                 visit(item)

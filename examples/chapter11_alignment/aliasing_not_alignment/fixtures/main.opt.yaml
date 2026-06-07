@@ -1,8 +1,13 @@
---- !Missed
+--- !Analysis
 Pass:            loop-vectorize
-Name:            MissedDetails
-DebugLoc:        { File: 'main.cpp', Line: 4, Column: 3 }
-Function:        _Z9scale_addPfPKfi
+Name:            UnsafeDep
+DebugLoc:        { File: main.cpp, Line: 10, Column: 10 }
+Function:        _Z10accumulatePfPKfi
 Args:
-  - String:          'cannot prove memory independence'
+  - String:          'loop not vectorized: '
+  - String:          'unsafe dependent memory operations in loop. Use #pragma clang loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop'
+  - String:          "\nBackward loop carried data dependence."
+  - String:          ' Memory location is the same as accessed at '
+  - Location:        'main.cpp:10:12'
+    DebugLoc:        { File: main.cpp, Line: 10, Column: 12 }
 ...

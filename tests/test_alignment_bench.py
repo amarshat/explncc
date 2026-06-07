@@ -85,7 +85,7 @@ def test_aliasing_fixture_overreach_traps() -> None:
         include_args_raw=False,
     )
     assert lines[0]["expected_alignment_label"] == "alignment_unlikely_from_evidence"
-    assert "ignores aliasing remark" in lines[0]["overreach_traps"]
+    assert "ignores loop-carried dependence remark" in lines[0]["overreach_traps"]
 
 
 def test_default_five_variants_cross_product() -> None:
