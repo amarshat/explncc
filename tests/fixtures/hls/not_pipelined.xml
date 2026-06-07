@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profile>
+  <UserAssignments>
+    <TopModelName>matmul</TopModelName>
+  </UserAssignments>
+  <PerformanceEstimates>
+    <SummaryOfLoopLatency>
+      <ROW_LOOP>
+        <TripCount>64</TripCount>
+        <IterationLatency>8</IterationLatency>
+        <PipelineComment>not pipelined: subfunction not pipelined</PipelineComment>
+      </ROW_LOOP>
+    </SummaryOfLoopLatency>
+  </PerformanceEstimates>
+</profile>

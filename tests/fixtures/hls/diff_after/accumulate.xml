@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profile>
+  <UserAssignments><TopModelName>accumulate</TopModelName></UserAssignments>
+  <PerformanceEstimates>
+    <SummaryOfLoopLatency>
+      <ACC_LOOP>
+        <TripCount>1024</TripCount>
+        <IterationLatency>3</IterationLatency>
+        <PipelineII>1</PipelineII>
+        <TargetII>1</TargetII>
+        <PipelineComment>pipelined</PipelineComment>
+      </ACC_LOOP>
+    </SummaryOfLoopLatency>
+  </PerformanceEstimates>
+</profile>

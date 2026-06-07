@@ -26,6 +26,22 @@ class OptimizationRecord(BaseModel):
     cost: str | None = None
     threshold: str | None = None
     hotness: str | None = None
+    initiation_interval: int | None = Field(
+        default=None,
+        description="HLS only: achieved loop initiation interval (cycles between iterations).",
+    )
+    target_ii: int | None = Field(
+        default=None,
+        description="HLS only: requested/target initiation interval, when stated.",
+    )
+    loop_latency: int | None = Field(
+        default=None,
+        description="HLS only: total loop latency in cycles, when reported.",
+    )
+    trip_count: int | None = Field(
+        default=None,
+        description="HLS only: loop trip count, when known at synthesis time.",
+    )
     args_raw: Any = None
     source_path: str | None = Field(
         default=None,

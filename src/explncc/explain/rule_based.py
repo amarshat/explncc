@@ -75,6 +75,36 @@ def _paragraphs_for_record(r: OptimizationRecord) -> list[str]:
             "another memory operation. This is related to aliasing and memory order; "
             "narrow lifetimes of pointers or separate memory regions to help the optimizer.",
         )
+    elif name == "IINotAchieved" or (p.startswith("hls") and "achieve" in msg):
+        ii = r.initiation_interval
+        tgt = r.target_ii
+        gap = ""
+        if ii is not None and tgt is not None:
+            gap = f" (achieved II={ii} vs target II={tgt})"
+        lines.append(
+            f"HLS could not pipeline {r.function or 'this loop'} at the target initiation "
+            f"interval{gap}. An II above target almost always means a loop-carried dependency "
+            "(an accumulator or a read-after-write through the same array/BRAM port) or a "
+            "resource limit (too few memory ports or DSPs). Break the recurrence (partial sums, "
+            "wider accumulators), partition or widen the array so more elements are readable per "
+            "cycle, or relax the target II if the dependency is fundamental.",
+        )
+    elif name == "LoopNotPipelined" or (p.startswith("hls") and "not pipelined" in msg):
+        lines.append(
+            f"HLS left {r.function or 'this loop'} un-pipelined at {_loc(r)}, so iterations run "
+            "back-to-back instead of overlapping. Common causes: a called subfunction is itself "
+            "not pipelined, the loop bound is not analyzable, or there is variable-latency "
+            "control flow inside the body. Add a pipeline directive to the hot loop, inline or "
+            "pipeline the callee, and make trip counts statically bounded.",
+        )
+    elif name == "Pipelined" or (p.startswith("hls") and r.kind == "passed"):
+        ii = r.initiation_interval
+        ii_s = f" at II={ii}" if ii is not None else ""
+        lines.append(
+            f"HLS pipelined {r.function or 'this loop'}{ii_s}. A new iteration enters the "
+            "pipeline every II cycles; II=1 is the throughput-optimal case. Confirm against the "
+            "synthesis report and watch resource usage if you push II lower across more loops.",
+        )
 
     if not lines and r.kind == "missed":
         lines.append(

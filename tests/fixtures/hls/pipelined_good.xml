@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profile>
+  <UserAssignments>
+    <TopModelName>fir_filter</TopModelName>
+  </UserAssignments>
+  <PerformanceEstimates>
+    <SummaryOfLoopLatency>
+      <TAP_LOOP>
+        <TripCount>128</TripCount>
+        <IterationLatency>5</IterationLatency>
+        <PipelineII>1</PipelineII>
+        <TargetII>1</TargetII>
+        <PipelineComment>pipelined</PipelineComment>
+      </TAP_LOOP>
+    </SummaryOfLoopLatency>
+  </PerformanceEstimates>
+</profile>

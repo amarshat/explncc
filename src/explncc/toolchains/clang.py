@@ -7,6 +7,7 @@ from pathlib import Path
 from explncc.models import OptimizationRecord
 from explncc.normalizer import load_records_from_path
 from explncc.toolchains.base import ToolchainAdapter
+from explncc.toolchains.hls import HlsReportAdapter
 from explncc.utils import collect_opt_yaml_paths
 
 
@@ -29,6 +30,7 @@ class ClangOptYamlAdapter(ToolchainAdapter):
 
 _ADAPTERS: dict[str, ToolchainAdapter] = {
     "clang": ClangOptYamlAdapter(),
+    "hls": HlsReportAdapter(),
 }
 
 

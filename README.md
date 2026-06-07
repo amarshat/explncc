@@ -59,6 +59,13 @@ Model backends consume **normalized records or packs**, never raw YAML streams. 
 | Evidence pack | `explncc evidence` |
 | Context leaves | `--include-source`, `--include-ir`, `--include-asm` on `evidence`, `alignment-pack`, `dataset` |
 | Semantic CI history | `explncc report-diff` |
+| Cross-toolchain (experimental) | `--toolchain hls` on `summary`, `stats`, `diff`, `explain`, `evidence` |
+
+The same LST shape extends past the CPU. `--toolchain hls` reads the synthesis
+reports an HLS tool already emits (Vitis `csynth.xml` today) and turns each
+loop's *initiation interval* decision into the same `OptimizationRecord` the rest
+of the pipeline consumes — a sharper version of the same opacity. See
+[docs/toolchain-notes.md](docs/toolchain-notes.md).
 
 **Trust model (Chapters 10–12):**
 

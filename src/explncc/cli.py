@@ -478,6 +478,10 @@ def evidence_cmd(
         int,
         typer.Option("--ir-lines", help="Approximate max IR lines in the snippet."),
     ] = 40,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Emit Chapter 10 evidence packs (deterministic JSON / JSONL / Markdown)."""
 
@@ -498,7 +502,7 @@ def evidence_cmd(
         typer.secho("--ir-lines must be at least 1", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     records = apply_filters(
         records,
         pass_contains=pass_contains,
@@ -556,6 +560,10 @@ def summary_cmd(
     ] = 120,
     as_json: Annotated[bool, typer.Option("--json", help="Emit JSON array to stdout.")] = False,
     as_jsonl: Annotated[bool, typer.Option("--jsonl", help="Emit JSON Lines to stdout.")] = False,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Print a tabular summary of normalized optimization remarks."""
 
@@ -563,7 +571,7 @@ def summary_cmd(
         typer.secho("choose only one of --json or --jsonl", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     records = apply_filters(
         records,
         pass_contains=pass_contains,
@@ -592,10 +600,14 @@ def stats_cmd(
         bool,
         typer.Option("--json", help="Emit machine-readable aggregates."),
     ] = False,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Show aggregate counts by pass, kind, function, and reason."""
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     stats = aggregate(records)
     if as_json:
         typer.echo(json.dumps(stats, indent=2, ensure_ascii=False))
@@ -619,11 +631,15 @@ def diff_cmd(
     before: Annotated[Path, typer.Argument(help="Before build: file or directory")],
     after: Annotated[Path, typer.Argument(help="After build: file or directory")],
     as_json: Annotated[bool, typer.Option("--json", help="Emit JSON diff report.")] = False,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Compare two optimization record sets (CI-friendly missed deltas)."""
 
-    b = _load_records_or_exit(before)
-    a = _load_records_or_exit(after)
+    b = _load_records_or_exit(before, toolchain=toolchain)
+    a = _load_records_or_exit(after, toolchain=toolchain)
     report = diff_records(b, a)
     if as_json:
         typer.echo(json.dumps(_diff_report_to_jsonable(report), indent=2, ensure_ascii=False))
@@ -707,6 +723,10 @@ def explain_cmd(
         int,
         typer.Option("--ai-limit", help="Max records serialized for model backends."),
     ] = 48,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Rule-based explanations with optional model augmentation."""
 
@@ -722,7 +742,7 @@ def explain_cmd(
         config_no_network=config.no_network,
     )
     if use_local:
-        records = _load_records_or_exit(target)
+        records = _load_records_or_exit(target, toolchain=toolchain)
         records = apply_filters(
             records,
             pass_contains=pass_contains,
@@ -752,7 +772,7 @@ def explain_cmd(
         )
         raise typer.Exit(2)
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     records = apply_filters(
         records,
         pass_contains=pass_contains,
