@@ -12,10 +12,15 @@ from explncc.models import OptimizationRecord
 from explncc.report_types import ExplanationInfo, ReportSourceInfo
 
 
-def report_source_info(target: Path, records: list[OptimizationRecord]) -> ReportSourceInfo:
-    from explncc.utils import collect_opt_yaml_paths
+def report_source_info(
+    target: Path,
+    records: list[OptimizationRecord],
+    *,
+    toolchain: str = "clang",
+) -> ReportSourceInfo:
+    from explncc.toolchains import get_adapter
 
-    paths = collect_opt_yaml_paths(target)
+    paths = get_adapter(toolchain).discover_inputs(target)
     return ReportSourceInfo(
         input_path=str(target.resolve()),
         file_count=len(paths),

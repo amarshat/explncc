@@ -1084,6 +1084,10 @@ def check_cmd(
         str | None,
         typer.Option("--pass-name-exact", help="Exact pass field for --max-pass-remarks."),
     ] = None,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Exit non-zero when configured thresholds are violated."""
 
@@ -1091,7 +1095,7 @@ def check_cmd(
         typer.secho("--max-pass-remarks requires --pass-name-exact", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     result = run_checks(
         records,
         max_missed_loop_vectorize=max_missed_loop_vectorize,
@@ -1210,6 +1214,10 @@ def _run_local_report(
 @app.command("report")
 def report_cmd(
     target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
     report_format: Annotated[
         str,
         typer.Option("--format", help="markdown | json | github | html."),
@@ -1401,8 +1409,8 @@ def report_cmd(
         )
         raise typer.Exit(2)
 
-    records = _load_records_or_exit(target)
-    source = report_source_info(target, records)
+    records = _load_records_or_exit(target, toolchain=toolchain)
+    source = report_source_info(target, records, toolchain=toolchain)
     metadata = ReportMetadata(
         git_sha=git_sha,
         branch=branch,
@@ -1524,6 +1532,10 @@ def report_diff_cmd(
         Path | None,
         typer.Option("--write-manifest", help="Write CI artifact manifest JSON."),
     ] = None,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
 ) -> None:
     """Semantic diff of compiler optimization behavior across two builds."""
 
@@ -1531,8 +1543,8 @@ def report_diff_cmd(
         typer.secho("report-diff supports markdown, json, and github formats.", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
-    b_records = _load_records_or_exit(before)
-    a_records = _load_records_or_exit(after)
+    b_records = _load_records_or_exit(before, toolchain=toolchain)
+    a_records = _load_records_or_exit(after, toolchain=toolchain)
     diff_result = build_report_diff(
         b_records,
         a_records,

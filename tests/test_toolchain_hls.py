@@ -99,3 +99,54 @@ def test_clang_path_unaffected() -> None:
 def test_bad_xml_raises_valueerror() -> None:
     with pytest.raises(ValueError):
         parse_csynth_xml("<not-valid-xml", source_path=None)
+
+
+# --- CI commands accept --toolchain hls (Chapter 12) ---
+
+from typer.testing import CliRunner  # noqa: E402
+
+from explncc.cli import app  # noqa: E402
+
+_RUNNER = CliRunner()
+
+
+def test_report_cli_toolchain_hls() -> None:
+    result = _RUNNER.invoke(
+        app,
+        ["report", str(FIXTURES / "ii_not_achieved.xml"), "--toolchain", "hls",
+         "--format", "markdown", "--no-explain"],
+    )
+    assert result.exit_code == 0
+    assert "hls-pipeline" in result.stdout
+    assert "IINotAchieved" in result.stdout
+
+
+def test_report_cli_hls_gate_fails() -> None:
+    result = _RUNNER.invoke(
+        app,
+        ["report", str(FIXTURES / "ii_not_achieved.xml"), "--toolchain", "hls",
+         "--format", "markdown", "--no-explain", "--fail-on-check", "--max-total-missed", "0"],
+    )
+    assert result.exit_code == 1
+    assert "fail" in result.stdout.lower()
+
+
+def test_check_cli_toolchain_hls_loads_records() -> None:
+    # A clean pipelined report has no misses, so the gate passes (exit 0).
+    result = _RUNNER.invoke(
+        app,
+        ["check", str(FIXTURES / "pipelined_good.xml"), "--toolchain", "hls",
+         "--max-missed-loop-vectorize", "0"],
+    )
+    assert result.exit_code == 0
+
+
+def test_report_diff_cli_toolchain_hls() -> None:
+    result = _RUNNER.invoke(
+        app,
+        ["report-diff", str(FIXTURES / "diff_before" / "accumulate.xml"),
+         str(FIXTURES / "diff_after" / "accumulate.xml"), "--toolchain", "hls",
+         "--format", "markdown"],
+    )
+    assert result.exit_code == 0
+    assert "IINotAchieved" in result.stdout
