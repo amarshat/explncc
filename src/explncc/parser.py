@@ -20,8 +20,32 @@ def _mapping_with_kind(loader: yaml.SafeLoader, node: yaml.Node, kind: str) -> d
     return data
 
 
+def _kind_from_tag(tag: str) -> str:
+    """Map a YAML tag like ``!AnalysisFPCommute`` to a normalized kind.
+
+    LLVM emits more than three tags: alongside ``!Missed`` / ``!Passed`` /
+    ``!Analysis`` it produces analysis variants such as ``!AnalysisFPCommute``
+    and ``!AnalysisAliasing``. Anything in that family is treated as analysis;
+    any other custom tag degrades to ``unknown`` rather than crashing the parse.
+    """
+
+    lowered = tag.lstrip("!").lower()
+    if lowered.startswith("missed"):
+        return "missed"
+    if lowered.startswith("passed"):
+        return "passed"
+    if lowered.startswith("analysis"):
+        return "analysis"
+    return "unknown"
+
+
 class OptYamlLoader(yaml.SafeLoader):
-    """YAML loader that preserves ``!Missed`` / ``!Passed`` / ``!Analysis`` tags."""
+    """YAML loader that preserves ``!Missed`` / ``!Passed`` / ``!Analysis`` tags.
+
+    Also handles analysis variants (``!AnalysisFPCommute``, ``!AnalysisAliasing``,
+    ...) and degrades any other ``!``-prefixed tag to kind ``unknown`` instead of
+    raising, so a newer LLVM emitting an unfamiliar remark tag never breaks a run.
+    """
 
 
 def _register_tags(loader: type[OptYamlLoader]) -> None:
@@ -34,6 +58,12 @@ def _register_tags(loader: type[OptYamlLoader]) -> None:
     register("!Missed", "missed")
     register("!Passed", "passed")
     register("!Analysis", "analysis")
+
+    def multi_ctor(loader: yaml.SafeLoader, tag_suffix: str, node: yaml.Node) -> dict[str, Any]:
+        return _mapping_with_kind(loader, node, _kind_from_tag(tag_suffix))
+
+    # Catch every other ``!...`` tag (e.g. !AnalysisFPCommute, !AnalysisAliasing).
+    loader.add_multi_constructor("!", multi_ctor)  # type: ignore[no-untyped-call]
 
 
 _register_tags(OptYamlLoader)
