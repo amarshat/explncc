@@ -2,7 +2,7 @@
 
 explncc (Explain Compiler) reads Clang/LLVM `.opt.yaml` optimization-remark streams, normalizes them into a stable schema, and runs deterministic analysis over them: summary, stats, diff, export, check, explain, evidence packs, alignment pipelines, CI reports and semantic diffs, policy gates, visualization, and digest/doctor for cache keys and masked configuration. Optional model backends turn a normalized remark into a short explanation; they are the only nondeterministic part of the tool.
 
-It is the companion tooling for the book *Decode the Compiler: AI-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
+It is the companion tooling for the book *Decode the Compiler: LLM-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
 
 ## Why optimization logs matter
 
