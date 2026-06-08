@@ -234,6 +234,10 @@ def trace_cmd(
 @app.command("viz")
 def viz_cmd(
     target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
     style: Annotated[
         str,
         typer.Option(
@@ -303,7 +307,7 @@ def viz_cmd(
         typer.secho(f"unknown --format {viz_format!r}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from None
 
-    records = _load_records_or_exit(target)
+    records = _load_records_or_exit(target, toolchain=toolchain)
     records = apply_filters(
         records,
         pass_contains=pass_contains,

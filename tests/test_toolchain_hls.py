@@ -150,3 +150,14 @@ def test_report_diff_cli_toolchain_hls() -> None:
     )
     assert result.exit_code == 0
     assert "IINotAchieved" in result.stdout
+
+
+def test_viz_cli_toolchain_hls() -> None:
+    result = _RUNNER.invoke(
+        app,
+        ["viz", str(FIXTURES / "ii_not_achieved.xml"), "--toolchain", "hls",
+         "--style", "missed-top", "--format", "mermaid"],
+    )
+    assert result.exit_code == 0
+    assert "flowchart" in result.stdout
+    assert "IINotAchieved" in result.stdout
