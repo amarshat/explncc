@@ -46,7 +46,7 @@ def _pass_kind_maps(records: list[OptimizationRecord]) -> dict[str, dict[str, in
 
     out: dict[str, dict[str, int]] = {}
     for r in records:
-        p = r.pass_name or "—"
+        p = r.pass_name or "?"
         k = r.kind or "unknown"
         bucket = out.setdefault(p, {})
         bucket[k] = bucket.get(k, 0) + 1
@@ -95,7 +95,7 @@ def build_missed_top_mermaid(records: list[OptimizationRecord], *, top: int = 15
             if r.line is not None:
                 loc += f":{r.line}"
         label = _label_escape(
-            f"{r.pass_name or '—'} / {r.remark_name or '—'}\\n{r.function or '—'}\\n{loc}",
+            f"{r.pass_name or '?'} / {r.remark_name or '?'}\\n{r.function or '?'}\\n{loc}",
             max_len=160,
         )
         lines.append(f'    {nid}["{label}"]')
@@ -110,12 +110,12 @@ def build_pass_remark_mermaid(records: list[OptimizationRecord], *, top: int = 2
 
     ctr: Counter[tuple[str, str]] = Counter()
     for r in records:
-        p = r.pass_name or "—"
-        n = r.remark_name or "—"
+        p = r.pass_name or "?"
+        n = r.remark_name or "?"
         ctr[(p, n)] += 1
     pairs = ctr.most_common(max(top, 1))
     lines = [
-        "%% explncc: top (pass, remark_name) pairs — edges are analytic, not LLVM pass order",
+        "%% explncc: top (pass, remark_name) pairs; edges are analytic, not LLVM pass order",
         "flowchart LR",
     ]
     for (pname, rname), cnt in pairs:

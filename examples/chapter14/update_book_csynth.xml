@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profile>
+  <UserAssignments>
+    <TopModelName>update_book</TopModelName>
+  </UserAssignments>
+  <PerformanceEstimates>
+    <SummaryOfLoopLatency>
+      <UPDATE_LOOP>
+        <TripCount>4096</TripCount>
+        <IterationLatency>4</IterationLatency>
+        <PipelineII>2</PipelineII>
+        <TargetII>1</TargetII>
+        <PipelineComment>unable to achieve target II due to carried dependency on best_bid</PipelineComment>
+      </UPDATE_LOOP>
+    </SummaryOfLoopLatency>
+  </PerformanceEstimates>
+</profile>
