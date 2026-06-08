@@ -17,6 +17,7 @@ class ExplanationResult:
     evidence_hash: str | None = None
     latency_ms: int | None = None
     error_type: str | None = None
+    cache_hit: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -30,4 +31,5 @@ class ExplanationResult:
             "evidence_hash": self.evidence_hash,
             "latency_ms": self.latency_ms,
             "error_type": self.error_type,
+            "cache_hit": self.cache_hit,
         }

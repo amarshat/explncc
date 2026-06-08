@@ -8,14 +8,25 @@ from typing import Any
 
 import httpx
 
+from explncc import __version__
 from explncc.config import ExplnccConfig
 from explncc.evidence import build_evidence_packs
 from explncc.explain import prompts
+from explncc.explain.cache import cache_load, cache_store, explanation_cache_key
 from explncc.explain.contracts import ExplanationResult
 from explncc.explain.rule_based import build_rule_explanation
 from explncc.models import OptimizationRecord
 from explncc.prompt_registry import hash_prompt_text, render_explain_prompt
 from explncc.record_identity import hash_payload
+
+
+def _model_for_mode(mode: str, config: ExplnccConfig) -> str | None:
+    return {
+        "ollama": config.ollama_model,
+        "openai": config.openai_model,
+        "claude": config.anthropic_model,
+        "auto": "auto",
+    }.get(mode)
 
 
 def _records_json_slice(records: list[OptimizationRecord], limit: int) -> str:
@@ -186,6 +197,31 @@ def run_explanation_result(
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
+    # On-device cache (content-addressed) for model-backed explanations. A hit
+    # returns the stored text without calling the backend at all.
+    model_name = _model_for_mode(mode, config)
+    cache_key: str | None = None
+    if config.cache_dir and mode in _NETWORK_BACKENDS:
+        cache_key = explanation_cache_key(
+            evidence_hash=evidence_hash,
+            prompt_hash=prompt_hash,
+            backend=mode,
+            model=model_name,
+            version=__version__,
+        )
+        cached = cache_load(config.cache_dir, cache_key)
+        if cached and isinstance(cached.get("text"), str) and cached["text"].strip():
+            return ExplanationResult(
+                backend=mode,
+                model=model_name,
+                success=True,
+                text=cached["text"],
+                prompt_hash=prompt_hash,
+                evidence_hash=evidence_hash,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                cache_hit=True,
+            )
+
     try:
         text = run_explanation(records, backend=mode, config=config, ai_limit=ai_limit)
     except ValueError as exc:
@@ -203,15 +239,20 @@ def run_explanation_result(
         )
 
     used_fallback = "Showing rule-based explanation only" in text or "Auto: Ollama unavailable" in text
-    model_name: str | None = None
-    if mode == "ollama":
-        model_name = config.ollama_model
-    elif mode == "openai":
-        model_name = config.openai_model
-    elif mode == "claude":
-        model_name = config.anthropic_model
-    elif mode == "auto":
-        model_name = "auto"
+
+    # Only cache genuine model output, never a fallback to rule text.
+    if cache_key and not used_fallback and text.strip():
+        cache_store(
+            config.cache_dir,
+            cache_key,
+            {
+                "text": text,
+                "backend": mode,
+                "model": model_name,
+                "evidence_hash": evidence_hash,
+                "prompt_hash": prompt_hash,
+            },
+        )
 
     return ExplanationResult(
         backend=mode,

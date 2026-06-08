@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from explncc import __version__
-from explncc.prompt_registry import list_prompt_template_ids
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -57,6 +56,10 @@ def doctor_payload() -> dict[str, str]:
 
 def build_doctor_report() -> dict[str, Any]:
     """Safe diagnostic payload for ``explncc doctor`` (never prints raw secrets)."""
+
+    # Imported lazily: keep config.py free of the prompt_registry -> explain ->
+    # backends -> config import cycle so ``import explncc.config`` is order-safe.
+    from explncc.prompt_registry import list_prompt_template_ids
 
     c = load_config()
     warnings: list[str] = []
