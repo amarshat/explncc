@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from explncc.explain import prompts
 from explncc.prompt_templates import CH11_SYSTEM, CH11_USER_TEMPLATES, render_ch11_user_prompt
 
 
@@ -69,6 +68,10 @@ def hash_prompt_text(text: str) -> str:
 
 def render_explain_prompt(*, rule_summary: str, records_json: str) -> tuple[str, str, str]:
     """Return (prompt_text, template_id, template_version)."""
+
+    # Imported lazily so prompt_registry stays free of the explain -> backends
+    # -> prompt_registry import cycle (import explncc.prompt_registry must be order-safe).
+    from explncc.explain import prompts
 
     user = prompts.user_message(rule_summary=rule_summary, records_json=records_json)
     full = f"{prompts.SYSTEM_EXPLAIN}\n\n{user}"
