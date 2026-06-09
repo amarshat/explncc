@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import sys
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -26,10 +28,11 @@ from explncc.alignment_eval import evaluate_predictions, load_predictions_jsonl
 from explncc.alignment_eval_output import render_eval_report
 from explncc.alignment_pack import ALIGNMENT_LABELS, build_alignment_evidence_packs
 from explncc.alignment_pack_output import render_alignment_evidence_packs
+from explncc.bench_backends import render_bench, run_bench
 from explncc.checks import build_policy_result, run_checks
 from explncc.ci_manifest import CiManifest, write_manifest
 from explncc.ci_report import parse_report_format, render_report
-from explncc.config import load_config, render_doctor
+from explncc.config import ExplnccConfig, load_config, render_doctor
 from explncc.context_snippets import ContextSnippetRequest
 from explncc.dataset_llm import (
     ExportFormat,
@@ -41,8 +44,9 @@ from explncc.diffing import DiffReport, diff_records
 from explncc.digest import build_digest, format_digest_json
 from explncc.evidence import build_evidence_packs
 from explncc.evidence_output import render_evidence_packs
-from explncc.explain.backends import run_explanation
+from explncc.explain.backends import run_explanation, run_explanation_result
 from explncc.exporters import export_csv, export_json, export_jsonl, record_to_json_dict
+from explncc.fusion import FusedFinding, fuse_records
 from explncc.local.classifier import classify_record
 from explncc.local.contracts import Confidence, confidence_at_least
 from explncc.local.ml_ranker import LocalModelRanker, ModelRankerUnavailable
@@ -74,6 +78,8 @@ from explncc.stats import aggregate
 from explncc.summary import apply_filters, rows_for_table, truncate_message
 from explncc.trace import build_trace, render_trace
 from explncc.viz import parse_viz_format, parse_viz_style, render_viz
+from explncc.why_output import render_findings as render_why_findings
+from explncc.why_output import verdict_tag
 
 app = typer.Typer(
     name="explncc",
@@ -131,7 +137,7 @@ def _main(
         help="Print version and exit.",
     ),
 ) -> None:
-    """Explain Compiler — optimization logs for real-world performance work."""
+    """Explain Compiler: optimization logs for real-world performance work."""
     if ctx.invoked_subcommand is not None:
         return
     typer.echo(ctx.get_help())
@@ -141,6 +147,408 @@ def _main(
 def version_cmd() -> None:
     """Print the explncc version string."""
     typer.echo(__version__)
+
+
+_RECORD_SUFFIXES = (".opt.yaml", ".yaml", ".yml", ".xml")
+_DISCOVER_SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__"}
+
+
+def _discover_record_files(root: Path) -> list[Path]:
+    """Find ``*.opt.yaml`` under ``root``, skipping VCS and venv directories."""
+
+    found: list[Path] = []
+    for path in sorted(root.rglob("*.opt.yaml")):
+        parts = set(path.parts)
+        if parts & _DISCOVER_SKIP_DIRS:
+            continue
+        if any(p.startswith(".") and p not in (".", "..") for p in path.parts[:-1]):
+            continue
+        if any((root / part / "pyvenv.cfg").is_file() for part in path.relative_to(root).parts[:1]):
+            continue
+        found.append(path)
+    return found
+
+
+def _looks_like_query(text: str) -> bool:
+    """A query is ``file.cpp:NN``, a source file name, or a function substring."""
+
+    if ":" in text:
+        return True
+    suffix = Path(text).suffix.lower()
+    return suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"} or suffix == ""
+
+
+def _parse_location_query(query: str) -> tuple[str, int | None] | None:
+    """Parse ``file.cpp:NN`` or ``file.cpp``; ``None`` when not a file query."""
+
+    candidate, line = query, None
+    if ":" in query:
+        head, _, tail = query.rpartition(":")
+        if tail.isdigit():
+            candidate, line = head, int(tail)
+    suffix = Path(candidate).suffix.lower()
+    if suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}:
+        return candidate, line
+    return None
+
+
+def _finding_matches_query(finding: FusedFinding, query: str) -> bool:
+    location = _parse_location_query(query)
+    if location is not None:
+        file_part, line = location
+        if not finding.file:
+            return False
+        if Path(finding.file).name != Path(file_part).name:
+            return False
+        if line is None or finding.line is None:
+            return True
+        return abs(finding.line - line) <= 2
+    needle = query.lower()
+    haystacks = [finding.function or "", finding.function_display or ""]
+    return any(needle in h.lower() for h in haystacks)
+
+
+@app.command("why")
+def why_cmd(
+    target: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Records (.opt.yaml file or directory), or a query like file.cpp:42 "
+                "or a function name (records are then auto-discovered under the "
+                "current directory)."
+            ),
+        ),
+    ] = ".",
+    query: Annotated[
+        str | None,
+        typer.Argument(
+            help="Optional query: file.cpp:42, file.cpp, or a function name substring.",
+        ),
+    ] = None,
+    function_contains: Annotated[
+        str | None,
+        typer.Option("--function", help="Filter findings by function name substring."),
+    ] = None,
+    pass_contains: Annotated[
+        str | None,
+        typer.Option("--pass", help="Filter findings by pass name substring."),
+    ] = None,
+    missed_only: Annotated[
+        bool,
+        typer.Option("--missed-only", help="Hide passed/positive findings."),
+    ] = False,
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", help="Include per-instruction noise (asm-printer, prologepilog)."),
+    ] = False,
+    top: Annotated[
+        int,
+        typer.Option("--top", help="Show at most N findings (0 = all)."),
+    ] = 10,
+    source_root: Annotated[
+        Path | None,
+        typer.Option("--source-root", help="Directory to resolve source snippets against."),
+    ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            help="Add a short model explanation under each missed finding (cap 5).",
+        ),
+    ] = False,
+    backend: Annotated[
+        str,
+        typer.Option(
+            "--backend",
+            help="Backend for --explain: ollama (default, local) | openai | claude | rule.",
+        ),
+    ] = "ollama",
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Model name override for the --explain backend."),
+    ] = None,
+    no_network: Annotated[
+        bool,
+        typer.Option("--no-network", help="Guardrail: forbid any network/model backend call."),
+    ] = False,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
+) -> None:
+    """Answer "why did the compiler do that?" for one loop, function, or file.
+
+    Fuses raw remarks into one finding per compiler decision: the missed
+    rollup, its analysis cause, and duplicates become a single entry with the
+    compiler's own reason, a source caret, and the compiler's suggestion.
+    """
+
+    target_path = Path(target)
+    effective_query = query
+    records: list[OptimizationRecord] = []
+    if target_path.exists() and (target_path.is_dir() or target.endswith(_RECORD_SUFFIXES)):
+        records = _load_records_or_exit(target_path, toolchain=toolchain)
+        default_root = target_path if target_path.is_dir() else target_path.parent
+    elif _looks_like_query(target):
+        effective_query = target if query is None else query
+        discovered = _discover_record_files(Path.cwd())
+        if not discovered:
+            typer.secho("no .opt.yaml records found under the current directory.", err=True)
+            typer.secho(
+                "generate them by recompiling with optimization records enabled:\n"
+                "  clang++ -O3 -fsave-optimization-record -c file.cpp\n"
+                "then re-run: explncc why " + target,
+                err=True,
+            )
+            raise typer.Exit(2)
+        for path in discovered:
+            records.extend(_load_records_or_exit(path, toolchain=toolchain))
+        default_root = Path.cwd()
+    else:
+        typer.secho(f"{target}: not a records path and not a recognizable query", err=True)
+        raise typer.Exit(2)
+
+    explain_backend: str | None = None
+    if explain:
+        explain_backend = backend.strip().lower()
+        config = load_config()
+        if explain_backend in _NETWORK_BACKENDS and (no_network or config.no_network):
+            source = "--no-network" if no_network else "EXPLNCC_NO_NETWORK/EXPLNCC_OFFLINE"
+            typer.secho(
+                f"{source} forbids network/model backend {explain_backend!r}; "
+                "use --backend rule or drop --explain.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(2)
+
+    findings = fuse_records(records, include_noise=show_all)
+    _emit_why(
+        findings,
+        records_count=len(records),
+        query=effective_query,
+        function_contains=function_contains,
+        pass_contains=pass_contains,
+        missed_only=missed_only,
+        top=top,
+        source_root=source_root or default_root,
+        noise_hidden=not show_all,
+        explain_backend=explain_backend,
+        model=model,
+    )
+
+
+_WHY_EXPLAIN_CAP = 5
+
+
+def _emit_why(
+    findings: list[FusedFinding],
+    *,
+    records_count: int,
+    query: str | None,
+    function_contains: str | None,
+    pass_contains: str | None,
+    missed_only: bool,
+    top: int,
+    source_root: Path,
+    noise_hidden: bool,
+    explain_backend: str | None = None,
+    model: str | None = None,
+) -> None:
+    total = len(findings)
+    if query:
+        findings = [f for f in findings if _finding_matches_query(f, query)]
+    if function_contains:
+        needle = function_contains.lower()
+        findings = [
+            f
+            for f in findings
+            if needle in (f.function or "").lower()
+            or needle in (f.function_display or "").lower()
+        ]
+    if pass_contains:
+        findings = [f for f in findings if pass_contains.lower() in (f.pass_name or "").lower()]
+    if missed_only:
+        # The user-facing meaning of "missed": real MISS findings, not
+        # bookkeeping that happens to arrive as a !Missed record (spills).
+        findings = [f for f in findings if verdict_tag(f) == "MISS"]
+    if not findings:
+        scope = f" matching {query!r}" if query else ""
+        typer.echo(f"no findings{scope} ({total} findings in the records overall)")
+        return
+    shown = len(findings) if top <= 0 else min(top, len(findings))
+    if explain_backend is None:
+        text = render_why_findings(
+            findings,
+            shown=shown,
+            total_records=records_count,
+            source_root=source_root,
+            use_color=sys.stdout.isatty(),
+            noise_hidden=noise_hidden,
+        )
+        typer.echo(text)
+        return
+    _emit_why_with_explanations(
+        findings,
+        shown=shown,
+        records_count=records_count,
+        source_root=source_root,
+        noise_hidden=noise_hidden,
+        explain_backend=explain_backend,
+        model=model,
+    )
+
+
+def _emit_why_with_explanations(
+    findings: list[FusedFinding],
+    *,
+    shown: int,
+    records_count: int,
+    source_root: Path,
+    noise_hidden: bool,
+    explain_backend: str,
+    model: str | None,
+) -> None:
+    """Render findings one by one, streaming a short model note under each miss."""
+
+    from explncc.explain.per_finding import FindingExplanation, explain_finding
+    from explncc.why_output import render_finding
+
+    use_color = sys.stdout.isatty()
+    config = _config_with_model(load_config(), explain_backend, model)
+
+    header_bits = [
+        f"{len(findings)} finding{'s' if len(findings) != 1 else ''}",
+        f"{records_count} records",
+    ]
+    if noise_hidden:
+        header_bits.append("noise hidden; --all to show")
+    typer.echo(f"explncc why: {', '.join(header_bits)}")
+    typer.echo("")
+
+    results: list[FindingExplanation] = []
+    explained = 0
+    indent = "  model:   "
+    continuation = "\n" + " " * len(indent)
+    for finding in findings[:shown]:
+        for line in render_finding(finding, source_root=source_root, use_color=use_color):
+            typer.echo(line)
+        if verdict_tag(finding) == "MISS" and explained < _WHY_EXPLAIN_CAP:
+            sys.stdout.write(indent)
+            sys.stdout.flush()
+
+            def _stream(chunk: str) -> None:
+                sys.stdout.write(chunk.replace("\n", continuation))
+                sys.stdout.flush()
+
+            results.append(
+                explain_finding(
+                    finding,
+                    backend=explain_backend,
+                    config=config,
+                    on_chunk=_stream,
+                ),
+            )
+            explained += 1
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        typer.echo("")
+    if shown < len(findings):
+        typer.echo(
+            f"... {len(findings) - shown} more finding(s); use --top 0 to show everything",
+        )
+
+    if results:
+        total_s = sum(r.latency_ms for r in results) / 1000.0
+        cached = sum(1 for r in results if r.cache_hit)
+        fell_back = sum(1 for r in results if r.fallback_used)
+        generated = len(results) - cached - fell_back
+        used_model = next((r.model for r in results if r.model), None)
+        if explain_backend == "rule":
+            summary = (
+                f"[explain] {len(results)} findings, deterministic evidence text (no model call)"
+            )
+        elif explain_backend == "ollama":
+            summary = (
+                f"[explain] {len(results)} findings in {total_s:.1f}s with "
+                f"{used_model or 'ollama'} on-device: {generated} generated, "
+                f"{cached} cached; nothing left this machine"
+            )
+        else:
+            summary = (
+                f"[explain] {len(results)} findings in {total_s:.1f}s with "
+                f"{used_model or explain_backend} via the {explain_backend} API (network): "
+                f"{generated} generated, {cached} cached"
+            )
+        if fell_back:
+            summary += f"; {fell_back} fell back to evidence text"
+        typer.secho(summary, err=True)
+
+
+@app.command("bench-backends")
+def bench_backends_cmd(
+    target: Annotated[Path, typer.Argument(help="File or directory containing .opt.yaml")],
+    backends: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--backend",
+            help="Backend to bench (repeatable): rule | ollama | openai | claude.",
+        ),
+    ] = None,
+    ollama_models: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ollama-model",
+            help="Ollama model tag to bench (repeatable; default: configured model).",
+        ),
+    ] = None,
+    top: Annotated[
+        int,
+        typer.Option("--top", help="Bench the first N missed findings."),
+    ] = 5,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help="text | markdown"),
+    ] = "text",
+    cached: Annotated[
+        bool,
+        typer.Option(
+            "--cached/--no-cached",
+            help="Also time a cache replay per model row (what a re-run costs).",
+        ),
+    ] = True,
+    toolchain: Annotated[
+        str,
+        typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
+    ] = "clang",
+) -> None:
+    """Measure explanation latency per backend on your own records.
+
+    Same fused findings as ``why``, same per-finding short path, wall-clock
+    timed. Unavailable backends become explicit skip rows instead of errors,
+    so the table is honest about what ran.
+    """
+
+    records = _load_records_or_exit(target, toolchain=toolchain)
+    findings = [f for f in fuse_records(records) if verdict_tag(f) == "MISS"]
+    if not findings:
+        typer.echo("no missed findings to bench in these records")
+        raise typer.Exit(0)
+    findings = findings[: max(1, top)]
+    rows = run_bench(
+        findings,
+        config=load_config(),
+        backends=backends or ["rule", "ollama"],
+        ollama_models=ollama_models,
+        include_cached=cached,
+    )
+    typer.echo(render_bench(rows, fmt=output_format.strip().lower()))
+    typer.secho(
+        f"[bench] {len(findings)} missed finding(s) from {target}; "
+        "numbers are wall-clock on this machine, re-run on your own corpus",
+        err=True,
+    )
 
 
 @app.command("doctor")
@@ -356,6 +764,21 @@ def _load_records_or_exit(path: Path, *, toolchain: str = "clang") -> list[Optim
         raise typer.Exit(2) from exc
 
 
+def _config_with_model(config: ExplnccConfig, mode: str, model: str | None) -> ExplnccConfig:
+    """Return ``config`` with the selected backend's model overridden."""
+
+    if not model:
+        return config
+    name = model.strip()
+    if mode in ("ollama", "auto"):
+        return dataclasses.replace(config, ollama_model=name)
+    if mode == "openai":
+        return dataclasses.replace(config, openai_model=name)
+    if mode == "claude":
+        return dataclasses.replace(config, anthropic_model=name)
+    return config
+
+
 _NETWORK_BACKENDS = {"openai", "claude", "ollama", "auto"}
 
 
@@ -487,7 +910,7 @@ def evidence_cmd(
         typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
     ] = "clang",
 ) -> None:
-    """Emit Chapter 10 evidence packs (deterministic JSON / JSONL / Markdown)."""
+    """Emit deterministic evidence packs (JSON / JSONL / Markdown) for prompts and tooling."""
 
     if include_source and source_root is None:
         typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)
@@ -727,6 +1150,17 @@ def explain_cmd(
         int,
         typer.Option("--ai-limit", help="Max records serialized for model backends."),
     ] = 48,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            help="Model name override for the selected backend (e.g. an Ollama tag).",
+        ),
+    ] = None,
+    stats: Annotated[
+        bool,
+        typer.Option("--stats", help="Print backend, model, latency, and cache hit to stderr."),
+    ] = False,
     toolchain: Annotated[
         str,
         typer.Option("--toolchain", help="Toolchain adapter: clang (default) or hls."),
@@ -786,8 +1220,22 @@ def explain_cmd(
     if limit > 0:
         records = records[:limit]
 
-    text = run_explanation(records, backend=mode, config=config, ai_limit=ai_limit)
-    typer.echo(text)
+    # run_explanation_result (not run_explanation) so the on-device explanation
+    # cache participates: an unchanged input never re-runs the model.
+    result = run_explanation_result(
+        records,
+        backend=mode,
+        config=_config_with_model(config, mode, model),
+        ai_limit=ai_limit,
+    )
+    typer.echo(result.text)
+    if stats:
+        typer.secho(
+            f"[stats] backend={result.backend} model={result.model or '-'} "
+            f"latency_ms={result.latency_ms} cache_hit={result.cache_hit} "
+            f"fallback={result.fallback_used}",
+            err=True,
+        )
 
 
 def _resolve_findings(
@@ -1769,7 +2217,7 @@ def alignment_pack_cmd(
         ),
     ] = None,
 ) -> None:
-    """Emit Chapter 11 alignment evidence packs (deterministic JSON / JSONL / Markdown)."""
+    """Emit alignment-focused evidence packs (deterministic JSON / JSONL / Markdown)."""
 
     if include_source and source_root is None:
         typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)
@@ -1843,7 +2291,7 @@ def dataset_cmd(
     ] = "alignment",
     template: Annotated[
         str,
-        typer.Option("--template", help="Chapter 11 user template: minimal | guided | rubric."),
+        typer.Option("--template", help="Prompt template: minimal | guided | rubric."),
     ] = "guided",
     export_format: Annotated[
         str,
@@ -1885,7 +2333,7 @@ def dataset_cmd(
     asm_file: Annotated[Path | None, typer.Option("--asm-file")] = None,
     asm_lines: Annotated[int, typer.Option("--asm-lines")] = 60,
 ) -> None:
-    """Emit JSONL rows for LLM fine-tuning / instruction datasets (Chapter 11 workflows)."""
+    """Emit JSONL rows for LLM fine-tuning / instruction datasets."""
 
     if include_source and source_root is None:
         typer.secho("--include-source requires --source-root", fg=typer.colors.RED, err=True)

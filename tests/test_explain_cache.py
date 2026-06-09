@@ -30,9 +30,7 @@ def _records() -> list[OptimizationRecord]:
 
 
 def test_cache_key_stable_and_sensitive() -> None:
-    base = dict(
-        evidence_hash="e1", prompt_hash="p1", backend="ollama", model="m", version="0.1.0"
-    )
+    base = dict(evidence_hash="e1", prompt_hash="p1", backend="ollama", model="m", version="0.1.0")
     k = explanation_cache_key(**base)
     assert k == explanation_cache_key(**base)  # stable
     # each input changes the key
@@ -101,3 +99,61 @@ def test_fallback_is_not_cached(tmp_path: Path, monkeypatch) -> None:
     assert r.fallback_used is True
     # nothing was written to the cache
     assert not list((tmp_path / "explanations").glob("*.json"))
+
+
+# --- CLI path -----------------------------------------------------------------
+# The ``explain`` command must go through run_explanation_result so the cache
+# participates; calling run_explanation directly silently bypasses it (that was
+# a real bug: identical re-runs paid the full model latency every time).
+
+
+def test_explain_cli_uses_cache_on_identical_rerun(tmp_path: Path, monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from explncc.cli import app
+
+    fixture = Path(__file__).parent / "fixtures" / "fusion" / "hot.opt.yaml"
+    calls = {"n": 0}
+
+    def fake_chat(config, user):  # noqa: ANN001
+        calls["n"] += 1
+        return "MODEL TEXT FROM OLLAMA"
+
+    monkeypatch.setattr(backends, "_ollama_chat", fake_chat)
+    monkeypatch.setenv("EXPLNCC_CACHE_DIR", str(tmp_path))
+    runner = CliRunner()
+
+    first = runner.invoke(app, ["explain", str(fixture), "--backend", "ollama", "--stats"])
+    assert first.exit_code == 0
+    assert "MODEL TEXT FROM OLLAMA" in first.stdout
+    assert "cache_hit=False" in first.output
+    assert calls["n"] == 1
+
+    second = runner.invoke(app, ["explain", str(fixture), "--backend", "ollama", "--stats"])
+    assert second.exit_code == 0
+    assert "MODEL TEXT FROM OLLAMA" in second.stdout
+    assert "cache_hit=True" in second.output
+    assert calls["n"] == 1  # model NOT called again
+
+
+def test_explain_cli_model_flag_overrides_config(tmp_path: Path, monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from explncc.cli import app
+
+    fixture = Path(__file__).parent / "fixtures" / "fusion" / "hot.opt.yaml"
+    seen = {}
+
+    def fake_chat(config, user):  # noqa: ANN001
+        seen["model"] = config.ollama_model
+        return "OK"
+
+    monkeypatch.setattr(backends, "_ollama_chat", fake_chat)
+    monkeypatch.delenv("EXPLNCC_CACHE_DIR", raising=False)
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["explain", str(fixture), "--backend", "ollama", "--model", "tiny-model:3b"],
+    )
+    assert result.exit_code == 0
+    assert seen["model"] == "tiny-model:3b"
