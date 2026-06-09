@@ -4,6 +4,38 @@ explncc (Explain Compiler) reads Clang/LLVM `.opt.yaml` optimization-remark stre
 
 It is the companion tooling for the book *Decode the Compiler: LLM-Guided Explanations of C/C++ Optimization Logs for Real-World Performance*.
 
+## Sixty seconds to the first answer
+
+Recompile with optimization records, then ask about the loop you care about:
+
+```bash
+clang++ -O3 -fsave-optimization-record -c hot.cpp
+explncc why hot.cpp:11
+```
+
+```text
+hot.cpp:11  scan(float*, float const*, int)
+  MISS  not vectorized: loop-carried dependence  [loop-vectorize, 2 records]
+   10 | void scan(float* a, const float* b, int n) {
+   11 |     for (int i = 1; i < n; ++i) a[i] = a[i-1] + b[i];
+      |                                      ^
+  compiler: unsafe dependent memory operations in loop. Backward loop carried data
+            dependence. Memory location is the same as accessed at hot.cpp:11:40
+  suggest:  Use #pragma clang loop distribute(enable) to allow loop distribution to
+            attempt to isolate the offending operations into a separate loop
+```
+
+Everything in that block is the compiler's own evidence: `why` fuses the
+`!Missed` rollup with its sibling `!Analysis` cause, demangles the function,
+quotes the source line with a caret at the reported column, and extracts the
+compiler's suggestion verbatim. No model was involved. Add one when you want
+prose: `explncc why hot.cpp:11 --explain` streams a two-sentence note from a
+local model under each missed finding, grounded in the same evidence.
+
+`explncc why` with no arguments triages the whole directory: misses first,
+noise hidden, wins included so you know what already worked. Details:
+[docs/why-and-fusion.md](docs/why-and-fusion.md).
+
 ## Why optimization logs matter
 
 The compiler already decided what to optimize, what to skip, and often why. It records those decisions as YAML streams tagged `!Missed`, `!Passed`, and `!Analysis`. Reading that output as data, instead of scrolling thousands of lines by hand, is what makes performance work reproducible and reviewable.
@@ -84,6 +116,8 @@ make install-dev
 
 ```bash
 make examples
+python -m explncc why build/examples/                # fused findings, misses first
+python -m explncc why build/examples/ --missed-only --explain   # + local model notes
 python -m explncc summary build/examples/ --limit 20
 python -m explncc stats build/examples/vectorize_aliasing_fail/ --json
 python -m explncc diff \
@@ -94,7 +128,7 @@ python -m explncc export build/examples/ --format jsonl -o /tmp/out.jsonl
 python -m explncc check build/examples/ --max-missed-inline 200
 ```
 
-### Chapter 10 (evidence packs and context extraction)
+### Evidence packs and context extraction
 
 Evidence packs are deterministic slices built from normalized remarks. They are the bridge between a raw `.opt.yaml` and downstream training or explanation.
 
@@ -118,7 +152,7 @@ python -m explncc evidence tests/fixtures/simd_vectorized.opt.yaml \
 
 The context flags are shared with `alignment-pack` and `dataset --focus alignment`. See `src/explncc/context_snippets.py` for the snippet bounds and the assembly mnemonic hints (`movaps`, `vmovups`, and so on), which are conservative signals, not diagnoses.
 
-### Chapter 11 (SIMD / alignment and LLM datasets)
+### SIMD / alignment analysis and LLM datasets
 
 These commands are deterministic. They do not train or call a model unless you feed the output into your own tooling.
 
@@ -155,7 +189,7 @@ make chapter11
 
 See [docs/chapter-11-alignment.md](docs/chapter-11-alignment.md) for the full pipeline guide and [docs/chapter-11-notes.md](docs/chapter-11-notes.md) for the short companion.
 
-### Chapter 12 (CI feedback loop: reports, semantic diff, gates)
+### CI feedback loop: reports, semantic diff, gates
 
 `explncc report` turns normalized remarks into CI artifacts (Markdown, JSON, GitHub, HTML). `report-diff` compares two `.opt.yaml` trees for compiler-semantic drift, which is what the optimizer decided differently, and complements a source diff. Policy gates are deterministic; a model never fails the build.
 
@@ -194,7 +228,7 @@ python -m explncc doctor
 
 Copy-ready workflows live in [examples/ci/](examples/ci/) (`explncc-report.yml`, `explncc-gated.yml`, `explncc-diff-pr.yml`). Full guide: [docs/chapter-12-ci.md](docs/chapter-12-ci.md). Short checklist: [docs/chapter-12-notes.md](docs/chapter-12-notes.md).
 
-### Chapter 13 (compiler-semantic infrastructure)
+### Compiler-semantic infrastructure
 
 Only the explanation backends are nondeterministic. Parse, normalize, identity hashes, evidence packs, reports, and digests are reproducible and CI-safe.
 
@@ -218,7 +252,7 @@ python -m explncc explain build/app.opt.yaml --backend auto
 
 Full guide: [docs/architecture.md](docs/architecture.md). Examples: [examples/chapter13_architecture/](examples/chapter13_architecture/). Demo: `make chapter13-demo`.
 
-### Chapter 14 (diagrams and merged explanations)
+### Diagrams and merged explanations
 
 `explncc viz` emits Mermaid diagrams, HTML with Mermaid.js, or JSON for your own graph UI, all from the same normalized remarks as the rest of the tool (not from LLVM IR bitcode). The diagrams are diagnostic views, not the LLVM pass pipeline, and the output says so.
 
@@ -326,6 +360,29 @@ The backends are `rule` (deterministic, offline, always available), `ollama` (lo
 
 Set `EXPLNCC_NO_NETWORK` (or `EXPLNCC_OFFLINE`) to forbid every network backend. Set `EXPLNCC_CACHE_DIR` to enable the on-device explanation cache: a model-backed result is stored under a content-addressed key (evidence, prompt, backend, model, and explncc version), so an unchanged input is explained once and reused, and a stale explanation is never served. See [docs/model-backends.md](docs/model-backends.md).
 
+## Local models are fast enough
+
+The explanation job here is small by construction: the fusion layer hands the model the compiler's verdict, cause, and suggestion, and asks for two sentences and a next step, capped at 140 output tokens per finding. That is a job a 3B model does well and quickly, on hardware you already own, with evidence that never leaves the machine.
+
+Measured with `explncc bench-backends` on a MacBook (Apple silicon, 16 GB), 3 missed findings from a real Clang 17 `.opt.yaml`:
+
+| backend | model | mode | findings | total | per finding | note |
+|---|---|---|---|---|---|---|
+| rule | - | generate | 3 | 0.0s | 0.0s |  |
+| ollama | qwen2.5-coder:3b | generate | 3 | 11.7s | 3.9s |  |
+| ollama | qwen2.5-coder:3b | cached | 3 | 0.0s | 0.0s |  |
+| ollama | mistral | generate | 3 | 27.6s | 9.2s |  |
+| ollama | mistral | cached | 3 | 0.1s | 0.0s |  |
+
+The cached rows are what a re-run after an unchanged build costs: the per-finding cache is content-addressed, so the second `why --explain` answers from disk. Numbers are wall-clock on one machine; run the same table on your own corpus:
+
+```bash
+explncc bench-backends build/ --backend rule --backend ollama \
+  --ollama-model qwen2.5-coder:3b --format markdown
+```
+
+Backends without a server or key become explicit `skipped` rows rather than errors, so the table never silently overstates what ran.
+
 ## Building the book examples
 
 ```bash
@@ -352,7 +409,7 @@ make chapter12-demo PYTHON="$(pwd)/.venv/bin/python3"   # CI-style github report
 make chapter13-demo PYTHON="$(pwd)/.venv/bin/python3"   # trace, digest, doctor, HTML
 ```
 
-### Testing Chapter 11 features
+### Testing the alignment pipeline
 
 ```bash
 make check
@@ -368,7 +425,7 @@ python -m explncc evidence tests/fixtures/simd_vectorized.opt.yaml --format json
 python -m pytest -q tests/test_evidence.py tests/test_context_snippets.py
 ```
 
-### Testing Chapter 12 (`report` / `report-diff`)
+### Testing `report` / `report-diff`
 
 ```bash
 python -m explncc report tests/fixtures/inline_miss_no_definition.opt.yaml --format markdown

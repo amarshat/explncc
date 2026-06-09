@@ -46,9 +46,13 @@ flowchart TB
 | `ci_report.py`, `html_report.py` | Report artifacts |
 | `digest.py` | Cache keys over compiler evidence |
 | `trace.py` | Pipeline visibility for teaching |
-| `toolchains/` | Adapter boundary (Clang today) |
-| `explain/` | Optional nondeterministic layer |
-| `cli.py` | **Orchestration only** — parse flags, call modules |
+| `fusion.py` | Records → one finding per compiler decision (rollup + cause + dedup) |
+| `demangle.py` | Batch c++filt / llvm-cxxfilt demangling, identity on failure |
+| `why_output.py` | Plain-text rendering for `why` (snippet, caret, cause, suggestion) |
+| `bench_backends.py` | Wall-clock latency table per backend over fused findings |
+| `toolchains/` | Adapter boundary (Clang, HLS) |
+| `explain/` | Optional nondeterministic layer (`per_finding.py` is the short path) |
+| `cli.py` | **Orchestration only**: parse flags, call modules |
 
 ## LST direction
 
