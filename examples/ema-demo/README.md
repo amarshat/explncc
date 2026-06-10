@@ -59,6 +59,43 @@ CPU it costs you SIMD lanes; on the FPGA it costs you initiation interval. No
 amount of pragma-waving fixes either, because the dependence is real; knowing
 that before you spend an afternoon on it is the point.
 
+## The full FPGA loop: diagnose, fix, verify, gate
+
+On the FPGA there is a real cure the CPU does not have: interleave independent
+streams through one pipeline. `ema_hls.cpp` holds both kernels. `ema_kernel`
+is the naive recurrence (II=3, as diagnosed above). `ema_kernel3` runs three
+independent EMA streams (three symbols, round-robin) through the same loop, so
+each stream's read sits three cycles after its write, which covers the adder
+latency. The dependence is still real; it just stops being on the critical
+cycle. If you have Vitis, `vitis_hls -f run_hls.tcl` regenerates the reports;
+`ema_csynth_fixed.xml` is the representative report for the fixed kernel.
+
+Step 1, diagnose (shown above): `explncc why ema_csynth.xml --toolchain hls`.
+
+Step 2, fix: interleave the streams (`ema_kernel3`).
+
+Step 3, verify the fix is real, by diffing the two synthesis reports:
+
+```bash
+explncc diff ema_csynth.xml ema_csynth_fixed.xml --toolchain hls
+```
+
+The `IINotAchieved` miss appears under "Resolved missed", and
+`explncc why ema_csynth_fixed.xml --toolchain hls` now shows both loops
+`OK pipelined (II=1)`.
+
+Step 4, gate it in CI so the regression cannot come back:
+
+```bash
+explncc report ema_csynth.xml       --toolchain hls --fail-on-check --max-total-missed 0  # exit 1
+explncc report ema_csynth_fixed.xml --toolchain hls --fail-on-check --max-total-missed 0  # exit 0
+```
+
+That is the whole discipline in four commands: the synthesis tool wrote down
+what it decided, the diagnosis quoted it, the fix was verified against the
+next report instead of against hope, and the gate makes the verdict
+permanent.
+
 ## Optional: a local model annotates it
 
 ```bash
