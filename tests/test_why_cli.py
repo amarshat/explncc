@@ -106,3 +106,14 @@ def test_why_output_is_deterministic_and_dash_clean() -> None:
     assert a.stdout == b.stdout
     assert "—" not in a.stdout  # em dash
     assert "–" not in a.stdout  # en dash
+
+
+def test_why_hls_findings_show_loop_names_without_debugloc() -> None:
+    fixture = Path(__file__).resolve().parent.parent / "examples" / "ema-demo" / "ema_csynth.xml"
+    result = runner.invoke(app, ["why", str(fixture), "--toolchain", "hls"])
+    assert result.exit_code == 0
+    assert "loop 'EMA_LOOP'  ema_kernel" in result.stdout
+    assert "MISS  II target missed (achieved 3 vs target 1)" in result.stdout
+    assert "loop 'MID_LOOP'  ema_kernel" in result.stdout
+    assert "OK  pipelined (II=1)" in result.stdout
+    assert "unknown location" not in result.stdout

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Representative Vitis HLS csynth.xml for the same EMA kernel synthesized to
+     hardware (PIPELINE II=1 requested on both loops). Shaped exactly like the
+     per-loop section Vitis emits under PerformanceEstimates; regenerate with a
+     real Vitis run if you have the toolchain. -->
+<profile>
+  <UserAssignments>
+    <TopModelName>ema_kernel</TopModelName>
+  </UserAssignments>
+  <PerformanceEstimates>
+    <SummaryOfLoopLatency>
+      <EMA_LOOP>
+        <TripCount>4096</TripCount>
+        <IterationLatency>4</IterationLatency>
+        <PipelineII>3</PipelineII>
+        <TargetII>1</TargetII>
+        <PipelineComment>Unable to achieve II=1; carried dependency on out[i-1] (value written 1 iteration earlier, read 3 cycles later) forces II=3</PipelineComment>
+      </EMA_LOOP>
+      <MID_LOOP>
+        <TripCount>4096</TripCount>
+        <IterationLatency>2</IterationLatency>
+        <PipelineII>1</PipelineII>
+        <TargetII>1</TargetII>
+      </MID_LOOP>
+    </SummaryOfLoopLatency>
+  </PerformanceEstimates>
+</profile>

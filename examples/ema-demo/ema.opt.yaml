@@ -1,0 +1,335 @@
+--- !Passed
+Pass:            licm
+Name:            Hoisted
+DebugLoc:        { File: ema.cpp, Line: 14, Column: 40 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'hoisting '
+  - Inst:            fsub
+    DebugLoc:        { File: ema.cpp, Line: 14, Column: 40 }
+...
+--- !Passed
+Pass:            loop-vectorize
+Name:            Vectorized
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'vectorized '
+  - String:          ''
+  - String:          'loop (vectorization width: '
+  - VectorizationFactor: '4'
+  - String:          ', interleaved count: '
+  - InterleaveCount: '4'
+  - String:          ')'
+...
+--- !Missed
+Pass:            slp-vectorizer
+Name:            NotPossible
+DebugLoc:        { File: ema.cpp, Line: 8, Column: 26 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'Cannot SLP vectorize list: vectorization was impossible'
+  - String:          ' with available vectorization factors'
+...
+--- !Missed
+Pass:            slp-vectorizer
+Name:            NotBeneficial
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'List vectorization was possible but not beneficial with cost '
+  - Cost:            '0'
+  - String:          ' >= '
+  - Treshold:        '0'
+...
+--- !Missed
+Pass:            slp-vectorizer
+Name:            NotBeneficial
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'List vectorization was possible but not beneficial with cost '
+  - Cost:            '0'
+  - String:          ' >= '
+  - Treshold:        '0'
+...
+--- !Analysis
+Pass:            loop-vectorize
+Name:            UnsafeDep
+DebugLoc:        { File: ema.cpp, Line: 14, Column: 16 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'loop not vectorized: '
+  - String:          'unsafe dependent memory operations in loop. Use #pragma clang loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop'
+  - String:          "\nBackward loop carried data dependence."
+  - String:          ' Memory location is the same as accessed at '
+  - Location:        'ema.cpp:14:51'
+    DebugLoc:        { File: ema.cpp, Line: 14, Column: 51 }
+...
+--- !Missed
+Pass:            loop-vectorize
+Name:            MissedDetails
+DebugLoc:        { File: ema.cpp, Line: 13, Column: 5 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          loop not vectorized
+...
+--- !Missed
+Pass:            regalloc
+Name:            SpillReloadCopies
+DebugLoc:        { File: ema.cpp, Line: 6, Column: 1 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - NumVRCopies:     '3'
+  - String:          ' virtual registers copies '
+  - TotalCopiesCost: '7.812500e-01'
+  - String:          ' total copies cost '
+  - String:          generated in function
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: ema.cpp, Line: 6, Column: 0 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - NumStackBytes:   '0'
+  - String:          ' stack bytes in function '''
+  - Function:        _Z9mid_pricePfPKfS1_i
+  - String:          ''''
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: ema.cpp, Line: 12, Column: 0 }
+Function:        _Z3emaPfPKffi
+Args:
+  - NumStackBytes:   '0'
+  - String:          ' stack bytes in function '''
+  - Function:        _Z3emaPfPKffi
+  - String:          ''''
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '2'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 23 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '3'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '1'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '6'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 8, Column: 26 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '7'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 9, Column: 1 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '1'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '4'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '3'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '6'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 8, Column: 26 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '16'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 7, Column: 5 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '3'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: ema.cpp, Line: 6, Column: 0 }
+Function:        _Z9mid_pricePfPKfS1_i
+Args:
+  - NumInstructions: '52'
+  - String:          ' instructions in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 13, Column: 5 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '2'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '6'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 14, Column: 26 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '6'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: ema.cpp, Line: 15, Column: 1 }
+Function:        _Z3emaPfPKffi
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '1'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: ema.cpp, Line: 12, Column: 0 }
+Function:        _Z3emaPfPKffi
+Args:
+  - NumInstructions: '15'
+  - String:          ' instructions in function'
+...

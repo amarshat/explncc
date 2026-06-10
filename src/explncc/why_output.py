@@ -8,6 +8,7 @@ compiler reported for the cause.
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -94,6 +95,20 @@ def _wrapped_field(label: str, text: str) -> list[str]:
     return body if body else [prefix.rstrip()]
 
 
+def _location_label(finding: FusedFinding) -> str:
+    """Location text; HLS records without a DebugLoc fall back to the loop name."""
+
+    label = finding.location()
+    if label != "unknown location":
+        return label
+    for record in finding.records:
+        message = record.message or ""
+        match = re.match(r"loop '([^']+)'", message)
+        if match:
+            return f"loop '{match.group(1)}'"
+    return label
+
+
 def render_finding(
     finding: FusedFinding,
     *,
@@ -102,7 +117,7 @@ def render_finding(
 ) -> list[str]:
     lines: list[str] = []
     fn = finding.function_display or finding.function or "<unknown function>"
-    lines.append(f"{finding.location()}  {fn}")
+    lines.append(f"{_location_label(finding)}  {fn}")
     tag = _styled_tag(verdict_tag(finding), use_color)
     extra = f", {finding.count} records" if finding.count > 1 else ""
     lines.append(f"  {tag}  {finding.headline}  [{finding.pass_name or '?'}{extra}]")

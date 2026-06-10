@@ -465,19 +465,20 @@ def _emit_why_with_explanations(
         fell_back = sum(1 for r in results if r.fallback_used)
         generated = len(results) - cached - fell_back
         used_model = next((r.model for r in results if r.model), None)
+        noun = "finding" if len(results) == 1 else "findings"
         if explain_backend == "rule":
             summary = (
-                f"[explain] {len(results)} findings, deterministic evidence text (no model call)"
+                f"[explain] {len(results)} {noun}, deterministic evidence text (no model call)"
             )
         elif explain_backend == "ollama":
             summary = (
-                f"[explain] {len(results)} findings in {total_s:.1f}s with "
+                f"[explain] {len(results)} {noun} in {total_s:.1f}s with "
                 f"{used_model or 'ollama'} on-device: {generated} generated, "
                 f"{cached} cached; nothing left this machine"
             )
         else:
             summary = (
-                f"[explain] {len(results)} findings in {total_s:.1f}s with "
+                f"[explain] {len(results)} {noun} in {total_s:.1f}s with "
                 f"{used_model or explain_backend} via the {explain_backend} API (network): "
                 f"{generated} generated, {cached} cached"
             )
