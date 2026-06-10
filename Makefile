@@ -227,6 +227,13 @@ test:
 
 check: lint fmt-check typecheck test
 
+binary:
+	$(PYTHON) -m pip install -q ".[package]"
+	$(PYTHON) -m PyInstaller --onefile --name explncc --clean --noconfirm \
+		--paths src --log-level WARN packaging/pyinstaller_entry.py
+	./dist/explncc --version
+	@echo "standalone binary: dist/explncc"
+
 DOCS := \
 	docs/README.md \
 	docs/getting-started.md \

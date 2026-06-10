@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "explncc"
 version = "0.1.0"
-description = "Explain Compiler — parse and analyze Clang/LLVM optimization remark logs"
+description = "Explain Compiler: parse and analyze Clang/LLVM optimization remark logs"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -36,13 +36,17 @@ dev = [
   "ruff>=0.3",
   "types-PyYAML>=6.0.12",
 ]
+package = [
+  "pyinstaller>=6.6",
+]
 
 [project.scripts]
 explncc = "explncc.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/explncc/explncc"
-Documentation = "https://github.com/explncc/explncc#readme"
+Homepage = "https://github.com/amarshat/explncc"
+Documentation = "https://github.com/amarshat/explncc#readme"
+Releases = "https://github.com/amarshat/explncc/releases"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

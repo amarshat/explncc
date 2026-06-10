@@ -27,3 +27,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# PyInstaller (generated; we drive it with CLI flags)
+/explncc.spec

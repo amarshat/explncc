@@ -106,6 +106,22 @@ See [docs/chapter-10-notes.md](docs/chapter-10-notes.md) for the teaching order 
 
 ## Install
 
+Standalone binary (no Python required): grab the one for your platform from
+[Releases](https://github.com/amarshat/explncc/releases), then:
+
+```bash
+chmod +x explncc-v*-macos-arm64        # or linux-x86_64, linux-arm64, ...
+mv explncc-v*-macos-arm64 /usr/local/bin/explncc
+explncc --version
+```
+
+Binaries are built per tag by GitHub Actions for macOS (arm64, x86_64), Linux
+(x86_64, arm64), and Windows (x86_64), smoke-tested against real fixtures
+before publishing, with a `SHA256SUMS` file alongside. `make binary` builds
+the same thing locally into `dist/explncc`.
+
+From source (puts `explncc` on the venv's PATH):
+
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
